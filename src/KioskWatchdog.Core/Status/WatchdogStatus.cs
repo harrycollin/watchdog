@@ -5,6 +5,7 @@ public enum ApplicationStatus
     Unknown,
     NotConfigured,
     Stopped,
+    OutsideSchedule,
     Starting,
     Running,
     Unhealthy,
@@ -26,11 +27,15 @@ public sealed class WatchdogStatus
     public int RestartCount { get; set; }
     public bool RestartLimitReached { get; set; }
     public string? LastError { get; set; }
+    public double? MemoryMegabytes { get; set; }
+    public double? CpuPercent { get; set; }
+    public int? ResourceProcessCount { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
     public TimeSpan? Uptime =>
         ProcessStartTime is null
         || Status is ApplicationStatus.Stopped
+            or ApplicationStatus.OutsideSchedule
             or ApplicationStatus.Unknown
             or ApplicationStatus.NotConfigured
             ? null
@@ -49,6 +54,9 @@ public sealed class WatchdogStatus
         RestartCount = RestartCount,
         RestartLimitReached = RestartLimitReached,
         LastError = LastError,
+        MemoryMegabytes = MemoryMegabytes,
+        CpuPercent = CpuPercent,
+        ResourceProcessCount = ResourceProcessCount,
         UpdatedAt = UpdatedAt
     };
 }

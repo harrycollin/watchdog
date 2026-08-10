@@ -68,6 +68,8 @@ public static class ConfigValidator
 
             ValidateMonitoring(app.Monitoring, errors, prefix);
             ValidateRestart(app.Restart, errors, prefix);
+            ValidateSchedule(app.Schedule, errors, prefix);
+            ValidateResources(app.Resources, errors, prefix);
         }
 
         ValidateNotifications(config.Notifications, errors);
@@ -110,8 +112,49 @@ public static class ConfigValidator
 
         ValidateMonitoring(app.Monitoring, errors, prefix);
         ValidateRestart(app.Restart, errors, prefix);
+        ValidateSchedule(app.Schedule, errors, prefix);
+        ValidateResources(app.Resources, errors, prefix);
 
         return new ConfigValidationResult(errors);
+    }
+
+    private static void ValidateResources(ResourceLimitsConfig resources, List<string> errors, string prefix)
+    {
+        if (!resources.Enabled)
+            return;
+
+        if (resources.MaxMemoryMegabytes <= 0 && resources.MaxCpuPercent <= 0)
+            errors.Add(prefix + "Resource limits need a memory MB and/or CPU % threshold greater than 0.");
+
+        if (resources.MaxMemoryMegabytes is < 0 or > 1_000_000)
+            errors.Add(prefix + "Max memory must be between 0 and 1000000 MB.");
+
+        if (resources.MaxCpuPercent is < 0 or > 10000)
+            errors.Add(prefix + "Max CPU percent must be between 0 and 10000.");
+
+        if (resources.BreachDurationSeconds is < 1 or > 86400)
+            errors.Add(prefix + "Breach duration must be between 1 and 86400 seconds.");
+    }
+
+    private static void ValidateSchedule(ScheduleConfig schedule, List<string> errors, string prefix)
+    {
+        if (!schedule.Enabled)
+            return;
+
+        if (!ScheduleConfig.TryParseTime(schedule.StartTime, out _))
+            errors.Add(prefix + "Schedule start time must be HH:mm (local time).");
+
+        if (!ScheduleConfig.TryParseTime(schedule.EndTime, out _))
+            errors.Add(prefix + "Schedule end time must be HH:mm (local time).");
+
+        if (schedule.DaysOfWeek.Count == 0)
+            errors.Add(prefix + "Schedule must include at least one day of the week.");
+
+        foreach (var day in schedule.DaysOfWeek)
+        {
+            if (!Enum.IsDefined(day))
+                errors.Add(prefix + $"Schedule contains invalid day '{day}'.");
+        }
     }
 
     private static void ValidateHttpApp(

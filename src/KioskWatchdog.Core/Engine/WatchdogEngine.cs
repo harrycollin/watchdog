@@ -2,6 +2,7 @@ using KioskWatchdog.Core.Abstractions;
 using KioskWatchdog.Core.Configuration;
 using KioskWatchdog.Core.Health;
 using KioskWatchdog.Core.Process;
+using KioskWatchdog.Core.Resources;
 using KioskWatchdog.Core.Restart;
 using KioskWatchdog.Core.Status;
 using Microsoft.Extensions.Hosting;
@@ -12,6 +13,7 @@ namespace KioskWatchdog.Core.Engine;
 public sealed class WatchdogEngine : BackgroundService
 {
     private readonly IProcessManager _processManager;
+    private readonly IProcessResourceSampler _resourceSampler;
     private readonly ProcessTerminator _terminator;
     private readonly IHealthChecker _healthChecker;
     private readonly IWatchdogStatusStore _statusStore;
@@ -32,9 +34,11 @@ public sealed class WatchdogEngine : BackgroundService
         IConfigStore configStore,
         IClock clock,
         ILogger<WatchdogEngine> logger,
-        WatchdogConfig? initialConfig = null)
+        WatchdogConfig? initialConfig = null,
+        IProcessResourceSampler? resourceSampler = null)
     {
         _processManager = processManager;
+        _resourceSampler = resourceSampler ?? new SystemProcessResourceSampler();
         _terminator = terminator;
         _healthChecker = healthChecker;
         _statusStore = statusStore;
@@ -155,6 +159,12 @@ public sealed class WatchdogEngine : BackgroundService
     public Task StartApplicationAsync(string? applicationId = null, CancellationToken cancellationToken = default)
         => RunForAppAsync(applicationId, async (slot, app, ct) =>
         {
+            if (!ScheduleEvaluator.IsWithinSchedule(app.Schedule, _clock.UtcNow))
+            {
+                await EnsureOutsideScheduleAsync(slot, app, ct).ConfigureAwait(false);
+                return;
+            }
+
             slot.ManualStopRequested = false;
             await EnsureApplicationRunningAsync(slot, app, forceStart: true, ct).ConfigureAwait(false);
         }, cancellationToken);
@@ -177,6 +187,12 @@ public sealed class WatchdogEngine : BackgroundService
     public Task RestartApplicationAsync(string? applicationId = null, CancellationToken cancellationToken = default)
         => RunForAppAsync(applicationId, async (slot, app, ct) =>
         {
+            if (!ScheduleEvaluator.IsWithinSchedule(app.Schedule, _clock.UtcNow))
+            {
+                await EnsureOutsideScheduleAsync(slot, app, ct).ConfigureAwait(false);
+                return;
+            }
+
             slot.ManualStopRequested = false;
             UpdateStatus(slot.Id, s =>
             {
@@ -370,6 +386,12 @@ public sealed class WatchdogEngine : BackgroundService
 
     private async Task MonitorOnceAsync(AppSlot slot, MonitoredApplicationConfig app, CancellationToken cancellationToken)
     {
+        if (!ScheduleEvaluator.IsWithinSchedule(app.Schedule, _clock.UtcNow))
+        {
+            await EnsureOutsideScheduleAsync(slot, app, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         switch (app.Kind)
         {
             case ApplicationKind.Http:
@@ -385,6 +407,39 @@ public sealed class WatchdogEngine : BackgroundService
                 await MonitorProcessAppOnceAsync(slot, app, cancellationToken).ConfigureAwait(false);
                 return;
         }
+    }
+
+    /// <summary>
+    /// Stops the app while outside its schedule without setting <see cref="AppSlot.ManualStopRequested"/>,
+    /// so it can auto-start again when the window opens.
+    /// </summary>
+    private async Task EnsureOutsideScheduleAsync(
+        AppSlot slot,
+        MonitoredApplicationConfig app,
+        CancellationToken cancellationToken)
+    {
+        var needsStop = slot.TrackedPid is int pid && _processManager.IsRunning(pid);
+        if (!needsStop && app.IsWindowsService)
+            needsStop = WindowsServiceControl.IsRunning(app.WindowsService.ServiceName, out _);
+
+        if (needsStop || slot.TrackedPid is not null)
+        {
+            _logger.LogInformation(
+                "[{AppId}] Outside schedule (local {Start}-{End}); ensuring stopped.",
+                slot.Id,
+                app.Schedule.StartTime,
+                app.Schedule.EndTime);
+            await StopTrackedProcessAsync(slot, app, cancellationToken).ConfigureAwait(false);
+        }
+
+        UpdateStatus(slot.Id, s =>
+        {
+            s.ApplicationName = app.Application.DisplayName;
+            s.Status = ApplicationStatus.OutsideSchedule;
+            s.ProcessId = null;
+            s.ProcessStartTime = null;
+            s.LastError = $"Outside schedule ({app.Schedule.StartTime}–{app.Schedule.EndTime} local)";
+        });
     }
 
     private enum ProbeKind { Http, Tcp }
@@ -507,6 +562,7 @@ public sealed class WatchdogEngine : BackgroundService
                 s.Status = ApplicationStatus.Running;
                 s.LastError = null;
             });
+            await MaybeEnforceResourceLimitsAsync(slot, app, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -535,6 +591,7 @@ public sealed class WatchdogEngine : BackgroundService
         UpdateStatus(slot.Id, s => s.Status = ApplicationStatus.Restarting);
         await StopTrackedProcessAsync(slot, app, cancellationToken).ConfigureAwait(false);
         slot.HealthMonitor.Reset();
+        slot.ResourceTracker.Reset();
         await TryRestartAsync(slot, app, "unhealthy probe", cancellationToken).ConfigureAwait(false);
     }
 
@@ -694,6 +751,71 @@ public sealed class WatchdogEngine : BackgroundService
 
         if (app.Health.Enabled && slot.TrackedPid is not null)
             await MaybeRunHealthCheckAsync(slot, app, cancellationToken).ConfigureAwait(false);
+
+        await MaybeEnforceResourceLimitsAsync(slot, app, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task MaybeEnforceResourceLimitsAsync(
+        AppSlot slot,
+        MonitoredApplicationConfig app,
+        CancellationToken cancellationToken)
+    {
+        if (!app.Resources.Enabled)
+        {
+            slot.ResourceTracker.Reset();
+            UpdateStatus(slot.Id, s =>
+            {
+                s.MemoryMegabytes = null;
+                s.CpuPercent = null;
+                s.ResourceProcessCount = null;
+            });
+            return;
+        }
+
+        ProcessResourceSample? sample = null;
+        if (app.Kind == ApplicationKind.Process
+            && !string.IsNullOrWhiteSpace(app.Application.ExecutablePath)
+            && app.Resources.IncludeChildProcesses)
+        {
+            sample = _resourceSampler.SampleByExecutablePath(app.Application.ExecutablePath);
+        }
+        else if (slot.TrackedPid is int pid)
+        {
+            sample = _resourceSampler.SampleByPid(pid);
+        }
+        else if (app.Kind == ApplicationKind.Process
+                 && !string.IsNullOrWhiteSpace(app.Application.ExecutablePath))
+        {
+            sample = _resourceSampler.SampleByExecutablePath(app.Application.ExecutablePath);
+        }
+
+        var evaluation = slot.ResourceTracker.Evaluate(
+            app.Resources,
+            sample,
+            _clock.UtcNow,
+            Environment.ProcessorCount);
+
+        UpdateStatus(slot.Id, s =>
+        {
+            s.MemoryMegabytes = evaluation.MemoryMegabytes;
+            s.CpuPercent = evaluation.CpuPercent;
+            s.ResourceProcessCount = evaluation.ProcessCount > 0 ? evaluation.ProcessCount : null;
+        });
+
+        if (!evaluation.ShouldRestart || evaluation.RestartReason is null)
+            return;
+
+        _logger.LogWarning("[{AppId}] {Reason}; restarting.", slot.Id, evaluation.RestartReason);
+        UpdateStatus(slot.Id, s =>
+        {
+            s.Status = ApplicationStatus.Restarting;
+            s.LastError = evaluation.RestartReason;
+        });
+
+        await StopTrackedProcessAsync(slot, app, cancellationToken).ConfigureAwait(false);
+        slot.HealthMonitor.Reset();
+        slot.ResourceTracker.Reset();
+        await TryRestartAsync(slot, app, evaluation.RestartReason, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task MaybeRunHealthCheckAsync(
@@ -1263,6 +1385,21 @@ public sealed class WatchdogEngine : BackgroundService
                 Launch = new LaunchConfig
                 {
                     Mode = a.Launch.Mode
+                },
+                Schedule = new ScheduleConfig
+                {
+                    Enabled = a.Schedule.Enabled,
+                    StartTime = a.Schedule.StartTime,
+                    EndTime = a.Schedule.EndTime,
+                    DaysOfWeek = a.Schedule.DaysOfWeek.ToList()
+                },
+                Resources = new ResourceLimitsConfig
+                {
+                    Enabled = a.Resources.Enabled,
+                    MaxMemoryMegabytes = a.Resources.MaxMemoryMegabytes,
+                    MaxCpuPercent = a.Resources.MaxCpuPercent,
+                    BreachDurationSeconds = a.Resources.BreachDurationSeconds,
+                    IncludeChildProcesses = a.Resources.IncludeChildProcesses
                 }
             }).ToList()
         };
@@ -1275,6 +1412,7 @@ public sealed class WatchdogEngine : BackgroundService
             Id = id;
             HealthMonitor = new HealthMonitor(clock);
             RestartManager = new RestartManager(clock);
+            ResourceTracker = new ResourceLimitTracker();
         }
 
         public string Id { get; }
@@ -1284,5 +1422,6 @@ public sealed class WatchdogEngine : BackgroundService
         public bool ManualStopRequested { get; set; }
         public HealthMonitor HealthMonitor { get; }
         public RestartManager RestartManager { get; }
+        public ResourceLimitTracker ResourceTracker { get; }
     }
 }

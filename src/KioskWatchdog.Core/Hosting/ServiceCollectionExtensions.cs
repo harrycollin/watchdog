@@ -26,6 +26,7 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IWatchdogStatusStore, WatchdogStatusStore>();
         services.AddSingleton<IProcessManager, SystemProcessManager>();
+        services.AddSingleton<IProcessResourceSampler, SystemProcessResourceSampler>();
         services.AddSingleton<ProcessTerminator>();
         services.AddSingleton<CommandFileQueue>();
         services.AddSingleton<StatusFilePublisher>();

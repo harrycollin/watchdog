@@ -52,6 +52,30 @@ public sealed class WatchdogConfig
             app.Restart ??= new RestartConfig();
             app.Health ??= new HealthConfig();
             app.Launch ??= new LaunchConfig();
+            app.Schedule ??= new ScheduleConfig();
+            app.Schedule.DaysOfWeek ??= new List<DayOfWeek>();
+            app.Resources ??= new ResourceLimitsConfig();
+
+            if (app.Resources.MaxMemoryMegabytes < 0)
+                app.Resources.MaxMemoryMegabytes = 0;
+            if (app.Resources.MaxCpuPercent < 0)
+                app.Resources.MaxCpuPercent = 0;
+            if (app.Resources.BreachDurationSeconds is < 1 or > 86400)
+                app.Resources.BreachDurationSeconds = 300;
+
+            if (app.Schedule.Enabled && app.Schedule.DaysOfWeek.Count == 0)
+            {
+                app.Schedule.DaysOfWeek.AddRange(
+                [
+                    DayOfWeek.Sunday, DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+                    DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday
+                ]);
+            }
+
+            if (ScheduleConfig.TryParseTime(app.Schedule.StartTime, out var start))
+                app.Schedule.StartTime = ScheduleConfig.FormatTime(start);
+            if (ScheduleConfig.TryParseTime(app.Schedule.EndTime, out var end))
+                app.Schedule.EndTime = ScheduleConfig.FormatTime(end);
 
             if (app.IsHttp)
             {
@@ -121,6 +145,8 @@ public sealed class MonitoredApplicationConfig
     public RestartConfig Restart { get; set; } = new();
     public HealthConfig Health { get; set; } = new();
     public LaunchConfig Launch { get; set; } = new();
+    public ScheduleConfig Schedule { get; set; } = new();
+    public ResourceLimitsConfig Resources { get; set; } = new();
 
     public bool IsHttp => Kind == ApplicationKind.Http;
     public bool IsTcp => Kind == ApplicationKind.Tcp;

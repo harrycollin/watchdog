@@ -57,6 +57,19 @@
       },
       "launch": {
         "mode": "interactive"
+      },
+      "schedule": {
+        "enabled": false,
+        "startTime": "09:00",
+        "endTime": "18:00",
+        "daysOfWeek": ["monday", "tuesday", "wednesday", "thursday", "friday"]
+      },
+      "resources": {
+        "enabled": false,
+        "maxMemoryMegabytes": 1536,
+        "maxCpuPercent": 90,
+        "breachDurationSeconds": 300,
+        "includeChildProcesses": true
       }
     },
     {

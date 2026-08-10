@@ -21,7 +21,7 @@
             <TextBlock x:Name="StatusChipText" Text="—" FontWeight="SemiBold" FontSize="12" />
           </Border>
           <Button Content="Settings" Padding="10,4" Margin="0,0,8,0" Click="Settings_Click" />
-          <Button Content="Open logs" Padding="10,4" Click="OpenLogs_Click" />
+          <Button Content="Logs" Padding="10,4" Click="OpenLogs_Click" />
         </StackPanel>
         <StackPanel>
           <TextBlock Text="Kiosk Watchdog" FontSize="26" FontWeight="SemiBold" />
@@ -111,6 +111,8 @@
                   <RowDefinition Height="Auto" />
                   <RowDefinition Height="Auto" />
                   <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Margin="0,0,8,6">
@@ -122,18 +124,34 @@
                   <Run x:Name="PidValue" Text="—" />
                 </TextBlock>
                 <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,0,8,6">
+                  <Run FontWeight="SemiBold" Text="Uptime: " />
+                  <Run x:Name="UptimeValue" Text="—" />
+                </TextBlock>
+                <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
                   <Run FontWeight="SemiBold" Text="Restarts: " />
                   <Run x:Name="RestartValue" Text="—" />
                 </TextBlock>
-                <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
+                <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,0,8,6">
                   <Run FontWeight="SemiBold" Text="Last start: " />
                   <Run x:Name="LastStartValue" Text="—" />
                 </TextBlock>
-                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,6" TextWrapping="Wrap">
+                <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" TextWrapping="Wrap">
+                  <Run FontWeight="SemiBold" Text="Schedule: " />
+                  <Run x:Name="ScheduleValue" Text="—" />
+                </TextBlock>
+                <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,0,8,6">
+                  <Run FontWeight="SemiBold" Text="Memory: " />
+                  <Run x:Name="MemoryValue" Text="—" />
+                </TextBlock>
+                <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,0,0,6">
+                  <Run FontWeight="SemiBold" Text="CPU: " />
+                  <Run x:Name="CpuValue" Text="—" />
+                </TextBlock>
+                <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,6" TextWrapping="Wrap">
                   <Run FontWeight="SemiBold" Text="Health: " />
                   <Run x:Name="HealthValue" Text="—" />
                 </TextBlock>
-                <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" TextWrapping="Wrap">
+                <TextBlock Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" TextWrapping="Wrap">
                   <Run FontWeight="SemiBold" Text="Message: " />
                   <Run x:Name="MessageValue" Text="—" />
                 </TextBlock>
@@ -309,78 +327,143 @@
                 </Grid>
               </StackPanel>
 
-              <Separator Margin="0,4,0,12" />
+              <Expander Header="Schedule" IsExpanded="True" Margin="0,8,0,8">
+                <StackPanel Margin="0,8,0,0">
+                  <TextBlock Text="Optional. Uses this PC’s local time. Re-checked every monitor tick."
+                             Foreground="#FF666666" Margin="0,0,0,8" TextWrapping="Wrap" />
+                  <CheckBox x:Name="ScheduleEnabledCheck"
+                            Content="Only run during a daily time window"
+                            Margin="0,0,0,8" />
+                  <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Start (HH:mm)" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="ScheduleStartBox" Grid.Column="1" Margin="0,0,16,0" Text="09:00" />
+                    <TextBlock Grid.Column="2" Text="End (HH:mm)" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="ScheduleEndBox" Grid.Column="3" Text="18:00"
+                             ToolTip="Exclusive end. If earlier than start, the window wraps past midnight." />
+                  </Grid>
+                  <WrapPanel>
+                    <CheckBox x:Name="DayMonCheck" Content="Mon" Margin="0,0,12,6" IsChecked="True" />
+                    <CheckBox x:Name="DayTueCheck" Content="Tue" Margin="0,0,12,6" IsChecked="True" />
+                    <CheckBox x:Name="DayWedCheck" Content="Wed" Margin="0,0,12,6" IsChecked="True" />
+                    <CheckBox x:Name="DayThuCheck" Content="Thu" Margin="0,0,12,6" IsChecked="True" />
+                    <CheckBox x:Name="DayFriCheck" Content="Fri" Margin="0,0,12,6" IsChecked="True" />
+                    <CheckBox x:Name="DaySatCheck" Content="Sat" Margin="0,0,12,6" />
+                    <CheckBox x:Name="DaySunCheck" Content="Sun" Margin="0,0,12,6" />
+                  </WrapPanel>
+                </StackPanel>
+              </Expander>
 
-              <TextBlock Text="Monitoring" FontWeight="SemiBold" Margin="0,0,0,8" />
-              <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="160" />
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="160" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+              <Expander Header="Resources" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                  <TextBlock Text="Restart if RAM or CPU stays too high — common for long-lived Electron/Chromium apps. 0 disables a metric."
+                             Foreground="#FF666666" Margin="0,0,0,8" TextWrapping="Wrap" />
+                  <CheckBox x:Name="ResourcesEnabledCheck"
+                            Content="Enforce resource limits"
+                            Margin="0,0,0,8" />
+                  <CheckBox x:Name="ResourcesIncludeChildrenCheck"
+                            Content="Include child processes (recommended for Electron)"
+                            IsChecked="True"
+                            Margin="0,0,0,8" />
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Max memory (MB)" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="MaxMemoryBox" Grid.Row="0" Grid.Column="1" Margin="0,0,16,8" Text="0"
+                             ToolTip="e.g. 1536. 0 = ignore memory." />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Max CPU (%)" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="MaxCpuBox" Grid.Row="0" Grid.Column="3" Margin="0,0,0,8" Text="0"
+                             ToolTip="Percent of the machine. 0 = ignore CPU." />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Breach for (s)" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="BreachDurationBox" Grid.Row="1" Grid.Column="1" Margin="0,0,16,0" Text="300"
+                             ToolTip="Must stay over the limit this long before restart." />
+                  </Grid>
+                </StackPanel>
+              </Expander>
 
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Process check (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
-                <TextBox x:Name="ProcessIntervalBox" Grid.Row="0" Grid.Column="1" Margin="0,0,16,8" />
-                <TextBlock Grid.Row="0" Grid.Column="2" Text="Health interval (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
-                <TextBox x:Name="HealthIntervalBox" Grid.Row="0" Grid.Column="3" Margin="0,0,0,8" />
+              <Expander Header="Monitoring &amp; restart" IsExpanded="False" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                  <TextBlock Text="How often to poll, and restart budget after crashes or unhealthy probes."
+                             Foreground="#FF666666" Margin="0,0,0,8" TextWrapping="Wrap" />
+                  <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Process check (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="ProcessIntervalBox" Grid.Row="0" Grid.Column="1" Margin="0,0,16,8" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Health interval (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="HealthIntervalBox" Grid.Row="0" Grid.Column="3" Margin="0,0,0,8" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Health timeout (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="HealthTimeoutBox" Grid.Row="1" Grid.Column="1" Margin="0,0,16,8" />
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="Graceful stop (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="GracefulStopBox" Grid.Row="1" Grid.Column="3" Margin="0,0,0,8" />
+                  </Grid>
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="160" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Restart delay (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="RestartDelayBox" Grid.Row="0" Grid.Column="1" Margin="0,0,16,8" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Max restarts" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <TextBox x:Name="MaxRestartsBox" Grid.Row="0" Grid.Column="3" Margin="0,0,0,8" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Window (min)" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="RestartWindowBox" Grid.Row="1" Grid.Column="1" Margin="0,0,16,0" />
+                  </Grid>
+                </StackPanel>
+              </Expander>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Health timeout (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
-                <TextBox x:Name="HealthTimeoutBox" Grid.Row="1" Grid.Column="1" Margin="0,0,16,8" />
-                <TextBlock Grid.Row="1" Grid.Column="2" Text="Graceful stop (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
-                <TextBox x:Name="GracefulStopBox" Grid.Row="1" Grid.Column="3" Margin="0,0,0,8" />
-              </Grid>
+              <Expander x:Name="HealthExpander" Header="Health check" IsExpanded="False" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                  <CheckBox x:Name="HealthEnabledCheck" Content="Enable HTTP health check" Margin="0,0,0,8" />
+                  <TextBlock x:Name="HttpHealthHint"
+                             Text="Required for HTTP apps — used as liveness (site up / down)."
+                             Foreground="#FF666666"
+                             Margin="0,0,0,8"
+                             Visibility="Collapsed"
+                             TextWrapping="Wrap" />
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="140" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="140" />
+                      <ColumnDefinition Width="80" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Health URL" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="HealthUrlBox" Grid.Column="1" Margin="0,0,16,0" />
+                    <TextBlock Grid.Column="2" Text="Expected status" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="ExpectedStatusBox" Grid.Column="3" Text="200" />
+                  </Grid>
+                </StackPanel>
+              </Expander>
 
-              <Separator Margin="0,4,0,12" />
-
-              <TextBlock Text="Restart" FontWeight="SemiBold" Margin="0,0,0,8" />
-              <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="160" />
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="160" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Restart delay (s)" VerticalAlignment="Center" Margin="0,0,8,8" />
-                <TextBox x:Name="RestartDelayBox" Grid.Row="0" Grid.Column="1" Margin="0,0,16,8" />
-                <TextBlock Grid.Row="0" Grid.Column="2" Text="Max restarts" VerticalAlignment="Center" Margin="0,0,8,8" />
-                <TextBox x:Name="MaxRestartsBox" Grid.Row="0" Grid.Column="3" Margin="0,0,0,8" />
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Window (min)" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <TextBox x:Name="RestartWindowBox" Grid.Row="1" Grid.Column="1" Margin="0,0,16,0" />
-              </Grid>
-
-              <Separator Margin="0,12,0,12" />
-
-              <TextBlock Text="Health check" FontWeight="SemiBold" Margin="0,0,0,8" />
-              <CheckBox x:Name="HealthEnabledCheck" Content="Enable HTTP health check" Margin="0,0,0,8" />
-              <TextBlock x:Name="HttpHealthHint"
-                         Text="Required for HTTP apps — used as liveness (site up / down)."
-                         Foreground="#FF666666"
-                         Margin="0,0,0,8"
-                         Visibility="Collapsed"
-                         TextWrapping="Wrap" />
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="140" />
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="140" />
-                  <ColumnDefinition Width="80" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Health URL" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <TextBox x:Name="HealthUrlBox" Grid.Column="1" Margin="0,0,16,0" />
-                <TextBlock Grid.Column="2" Text="Expected status" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <TextBox x:Name="ExpectedStatusBox" Grid.Column="3" Text="200" />
-              </Grid>
-
-              <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+              <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                 <Button Content="Save configuration" Width="150" Margin="0,0,8,0" Click="Save_Click"
                         Background="#FF2563EB" Foreground="White" FontWeight="SemiBold" Padding="8,4" />
                 <Button Content="Reload" Width="90" Click="Reload_Click" />

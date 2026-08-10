@@ -92,7 +92,36 @@ HTTP apps run `startCommand` through `cmd.exe /c` (interactive session when the 
 
 Also supported: **`tcp`** (localhost port check + optional start/stop commands) and **`windowsService`** (monitor/restart by service name). HTTP health accepts `expectedStatusCode` (default 200).
 
-The UI lists targets with type labels; Start / Stop / Restart target the selected id. **Open logs** opens the ProgramData logs folder. Closing the UI minimizes to the tray.
+### Schedules
+
+Optional per-app `schedule` (also in the UI under **Schedule**). Uses the PC’s **local** time and is re-checked every monitor tick:
+
+```json
+"schedule": {
+  "enabled": true,
+  "startTime": "09:00",
+  "endTime": "18:00",
+  "daysOfWeek": ["monday", "tuesday", "wednesday", "thursday", "friday"]
+}
+```
+
+Outside the window the app is stopped (`OutsideSchedule`) without treating it as a manual stop, so it can start again when the window opens. If `endTime` is earlier than `startTime`, the window wraps past midnight (day = the day the window starts).
+
+### Resource limits
+
+Optional per-app `resources` (UI: **Resources**). Restart when working-set RAM and/or CPU stay over a threshold for `breachDurationSeconds` (default 300). Set a limit to `0` to ignore that metric. `includeChildProcesses` (default true) sums Electron/Chromium helpers that share the same `.exe` path.
+
+```json
+"resources": {
+  "enabled": true,
+  "maxMemoryMegabytes": 1536,
+  "maxCpuPercent": 90,
+  "breachDurationSeconds": 300,
+  "includeChildProcesses": true
+}
+```
+
+The UI lists targets with type labels; Start / Stop / Restart target the selected id. Live status shows **uptime**, **memory/CPU**, and the next **schedule** transition. **Logs** opens an in-app viewer over the rolling ProgramData log files (also “Open folder”). Closing the UI minimizes to the tray.
 
 ## Develop
 

@@ -269,6 +269,55 @@ public class WatchdogEngineTests
     }
 
     [Fact]
+    public async Task Outside_schedule_stops_app_without_blocking_next_window()
+    {
+        // Monday 10:00 local → inside 09:00–18:00 weekdays.
+        var fakeClock = new FakeClock(UtcForLocal(2026, 3, 9, 10, 0));
+        var harness = CreateHarness(fakeClock: fakeClock);
+        var app = harness.Config.Primary();
+        app.Schedule = new ScheduleConfig
+        {
+            Enabled = true,
+            StartTime = "09:00",
+            EndTime = "18:00",
+            DaysOfWeek =
+            [
+                DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+                DayOfWeek.Thursday, DayOfWeek.Friday
+            ]
+        };
+        harness.Engine.ReloadConfiguration(harness.Config);
+
+        await harness.Engine.StartAsync(CancellationToken.None);
+        await WaitForAsync(() => harness.PrimaryStatus().ProcessId is not null);
+
+        var pid = harness.PrimaryStatus().ProcessId!.Value;
+        harness.Clock!.Set(UtcForLocal(2026, 3, 9, 18, 0)); // Monday 18:00 local — exclusive end
+
+        await WaitForAsync(() =>
+            harness.PrimaryStatus().Status == ApplicationStatus.OutsideSchedule
+            && !harness.Processes.IsRunning(pid),
+            TimeSpan.FromSeconds(5));
+
+        harness.Clock.Set(UtcForLocal(2026, 3, 10, 10, 0)); // Tuesday 10:00 local
+
+        await WaitForAsync(() =>
+            harness.PrimaryStatus().Status == ApplicationStatus.Running
+            && harness.PrimaryStatus().ProcessId is not null,
+            TimeSpan.FromSeconds(5));
+
+        await harness.Engine.StopAsync(CancellationToken.None);
+    }
+
+    /// <summary>UTC instant that is the given wall time in the machine local zone.</summary>
+    private static DateTimeOffset UtcForLocal(int year, int month, int day, int hour, int minute)
+    {
+        var local = new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Unspecified);
+        var utc = TimeZoneInfo.ConvertTimeToUtc(local, TimeZoneInfo.Local);
+        return new DateTimeOffset(utc, TimeSpan.Zero);
+    }
+
+    [Fact]
     public async Task Http_app_starts_shell_command_when_health_is_down()
     {
         var harness = CreateHttpHarness();
@@ -325,7 +374,7 @@ public class WatchdogEngineTests
         Assert.True(condition(), "Condition not met before timeout.");
     }
 
-    private static Harness CreateHarness()
+    private static Harness CreateHarness(IClock? clock = null, FakeClock? fakeClock = null)
     {
         var config = ConfigValidatorTests.CreateValid();
         var exe = Path.Combine(Path.GetTempPath(), "FakeKiosk-" + Guid.NewGuid() + ".exe");
@@ -339,7 +388,8 @@ public class WatchdogEngineTests
         app.Monitoring.HealthTimeoutSeconds = 45;
         app.Health.Enabled = true;
 
-        var clock = new SystemClock();
+        // Prefer real time for health-timeout tests; FakeClock only when the test advances it.
+        IClock resolvedClock = clock ?? (IClock?)fakeClock ?? new SystemClock();
         var processes = new FakeProcessManager();
         var health = new FakeHealthChecker();
         health.SetDefault(FakeHealthChecker.Ok());
@@ -353,11 +403,11 @@ public class WatchdogEngineTests
             health,
             status,
             configStore,
-            clock,
+            resolvedClock,
             NullLogger<WatchdogEngine>.Instance,
             config);
 
-        return new Harness(engine, processes, health, status, config, exe);
+        return new Harness(engine, processes, health, status, config, exe, fakeClock);
     }
 
     private static Harness CreateMultiHarness(bool missingA = false)
@@ -420,7 +470,7 @@ public class WatchdogEngineTests
             NullLogger<WatchdogEngine>.Instance,
             config);
 
-        return new Harness(engine, processes, health, status, config, exeB);
+        return new Harness(engine, processes, health, status, config, exeB, fakeClock: null);
     }
 
     private static Harness CreateHttpHarness()
@@ -444,7 +494,7 @@ public class WatchdogEngineTests
             NullLogger<WatchdogEngine>.Instance,
             config);
 
-        return new Harness(engine, processes, health, status, config, config.Primary().Http.WorkingDirectory);
+        return new Harness(engine, processes, health, status, config, config.Primary().Http.WorkingDirectory, fakeClock: null);
     }
 
     private sealed class Harness
@@ -455,7 +505,8 @@ public class WatchdogEngineTests
             FakeHealthChecker health,
             IWatchdogStatusStore status,
             WatchdogConfig config,
-            string exePath)
+            string exePath,
+            FakeClock? fakeClock)
         {
             Engine = engine;
             Processes = processes;
@@ -463,6 +514,7 @@ public class WatchdogEngineTests
             Status = status;
             Config = config;
             ExePath = exePath;
+            Clock = fakeClock;
         }
 
         public WatchdogEngine Engine { get; }
@@ -471,6 +523,7 @@ public class WatchdogEngineTests
         public IWatchdogStatusStore Status { get; }
         public WatchdogConfig Config { get; }
         public string ExePath { get; }
+        public FakeClock? Clock { get; }
 
         public WatchdogStatus PrimaryStatus()
             => Status.Get(WatchdogConfig.DefaultApplicationId)

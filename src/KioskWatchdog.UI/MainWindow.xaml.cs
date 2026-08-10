@@ -136,6 +136,23 @@ public partial class MainWindow : Window
         HealthUrlBox.Text = _selected.HealthUrl;
         ExpectedStatusBox.Text = _selected.ExpectedStatusCode.ToString();
 
+        ScheduleEnabledCheck.IsChecked = _selected.ScheduleEnabled;
+        ScheduleStartBox.Text = _selected.ScheduleStartTime;
+        ScheduleEndBox.Text = _selected.ScheduleEndTime;
+        DayMonCheck.IsChecked = _selected.ScheduleDays.Contains(DayOfWeek.Monday);
+        DayTueCheck.IsChecked = _selected.ScheduleDays.Contains(DayOfWeek.Tuesday);
+        DayWedCheck.IsChecked = _selected.ScheduleDays.Contains(DayOfWeek.Wednesday);
+        DayThuCheck.IsChecked = _selected.ScheduleDays.Contains(DayOfWeek.Thursday);
+        DayFriCheck.IsChecked = _selected.ScheduleDays.Contains(DayOfWeek.Friday);
+        DaySatCheck.IsChecked = _selected.ScheduleDays.Contains(DayOfWeek.Saturday);
+        DaySunCheck.IsChecked = _selected.ScheduleDays.Contains(DayOfWeek.Sunday);
+
+        ResourcesEnabledCheck.IsChecked = _selected.ResourcesEnabled;
+        ResourcesIncludeChildrenCheck.IsChecked = _selected.ResourcesIncludeChildren;
+        MaxMemoryBox.Text = _selected.MaxMemoryMegabytes.ToString();
+        MaxCpuBox.Text = _selected.MaxCpuPercent.ToString();
+        BreachDurationBox.Text = _selected.BreachDurationSeconds.ToString();
+
         SelectKind(_selected.Kind);
         SelectLaunchMode(LaunchModeBox, _selected.LaunchMode);
         SelectLaunchMode(HttpLaunchModeBox, _selected.LaunchMode);
@@ -198,6 +215,7 @@ public partial class MainWindow : Window
         {
             HealthEnabledCheck.IsChecked = true;
             HealthEnabledCheck.IsEnabled = false;
+            HealthExpander.IsExpanded = true;
         }
         else
         {
@@ -243,6 +261,17 @@ public partial class MainWindow : Window
         _selected.HealthUrl = HealthUrlBox.Text.Trim();
         _selected.ExpectedStatusCode = ParseInt(ExpectedStatusBox.Text, 200);
 
+        _selected.ScheduleEnabled = ScheduleEnabledCheck.IsChecked == true;
+        _selected.ScheduleStartTime = ScheduleStartBox.Text.Trim();
+        _selected.ScheduleEndTime = ScheduleEndBox.Text.Trim();
+        _selected.ScheduleDays = ReadScheduleDaysFromForm();
+
+        _selected.ResourcesEnabled = ResourcesEnabledCheck.IsChecked == true;
+        _selected.ResourcesIncludeChildren = ResourcesIncludeChildrenCheck.IsChecked == true;
+        _selected.MaxMemoryMegabytes = ParseInt(MaxMemoryBox.Text, 0);
+        _selected.MaxCpuPercent = ParseInt(MaxCpuBox.Text, 0);
+        _selected.BreachDurationSeconds = ParseInt(BreachDurationBox.Text, 300);
+
         var launchBox = _selected.Kind == ApplicationKind.Http ? HttpLaunchModeBox : LaunchModeBox;
         var modeTag = (launchBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString()
                       ?? "Interactive";
@@ -271,6 +300,19 @@ public partial class MainWindow : Window
 
     private static int ParseInt(string text, int fallback)
         => int.TryParse(text, out var value) ? value : fallback;
+
+    private List<DayOfWeek> ReadScheduleDaysFromForm()
+    {
+        var days = new List<DayOfWeek>();
+        if (DayMonCheck.IsChecked == true) days.Add(DayOfWeek.Monday);
+        if (DayTueCheck.IsChecked == true) days.Add(DayOfWeek.Tuesday);
+        if (DayWedCheck.IsChecked == true) days.Add(DayOfWeek.Wednesday);
+        if (DayThuCheck.IsChecked == true) days.Add(DayOfWeek.Thursday);
+        if (DayFriCheck.IsChecked == true) days.Add(DayOfWeek.Friday);
+        if (DaySatCheck.IsChecked == true) days.Add(DayOfWeek.Saturday);
+        if (DaySunCheck.IsChecked == true) days.Add(DayOfWeek.Sunday);
+        return days;
+    }
 
     private void AddApp_Click(object sender, RoutedEventArgs e)
     {
@@ -489,11 +531,19 @@ public partial class MainWindow : Window
         };
 
         StatusValue.Text = status.Status.ToString();
-        StatusChipText.Text = status.Status.ToString();
+        StatusChipText.Text = status.Status == ApplicationStatus.OutsideSchedule
+            ? "Scheduled off"
+            : status.Status.ToString();
         StatusChip.Background = BrushForStatus(status.Status);
         PidValue.Text = status.ProcessId?.ToString() ?? "—";
         RestartValue.Text = status.RestartCount.ToString();
         LastStartValue.Text = status.ProcessStartTime?.ToLocalTime().ToString("g") ?? "—";
+        UptimeValue.Text = FormatLiveUptime(status);
+        ScheduleValue.Text = FormatScheduleSummary();
+        MemoryValue.Text = status.MemoryMegabytes is { } mb
+            ? $"{mb:0} MB" + (status.ResourceProcessCount is int n && n > 1 ? $" ({n} procs)" : "")
+            : "—";
+        CpuValue.Text = status.CpuPercent is { } cpu ? $"{cpu:0}%" : "—";
 
         if (HealthEnabledCheck.IsChecked == true)
         {
@@ -561,6 +611,7 @@ public partial class MainWindow : Window
             ApplicationStatus.Unhealthy or ApplicationStatus.Error or ApplicationStatus.RestartLimitReached
                 => BrushFrom("#FEE2E2"),
             ApplicationStatus.Starting or ApplicationStatus.Restarting => BrushFrom("#DBEAFE"),
+            ApplicationStatus.OutsideSchedule => BrushFrom("#FEF3C7"),
             ApplicationStatus.Stopped or ApplicationStatus.NotConfigured => BrushFrom("#E5E7EB"),
             _ => BrushFrom("#E5E7EB")
         };
@@ -721,13 +772,48 @@ public partial class MainWindow : Window
 
     private void OpenLogs_Click(object sender, RoutedEventArgs e)
     {
-        var logs = WatchdogConfig.DefaultLogsDirectory;
-        Directory.CreateDirectory(logs);
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        var viewer = new LogViewerWindow { Owner = this };
+        viewer.Show();
+    }
+
+    private static string FormatLiveUptime(WatchdogStatus status)
+    {
+        if (status.ProcessStartTime is null)
+            return "—";
+
+        if (status.Status is ApplicationStatus.Stopped
+            or ApplicationStatus.OutsideSchedule
+            or ApplicationStatus.NotConfigured
+            or ApplicationStatus.Unknown)
         {
-            FileName = logs,
-            UseShellExecute = true
-        });
+            return "—";
+        }
+
+        var uptime = DateTimeOffset.UtcNow - status.ProcessStartTime.Value.ToUniversalTime();
+        return ScheduleEvaluator.FormatUptime(uptime);
+    }
+
+    private string FormatScheduleSummary()
+    {
+        if (_selected is null || !_selected.ScheduleEnabled)
+            return "Always on";
+
+        var schedule = new ScheduleConfig
+        {
+            Enabled = true,
+            StartTime = _selected.ScheduleStartTime,
+            EndTime = _selected.ScheduleEndTime,
+            DaysOfWeek = _selected.ScheduleDays.ToList()
+        };
+
+        var now = DateTimeOffset.UtcNow;
+        var within = ScheduleEvaluator.IsWithinSchedule(schedule, now);
+        var next = ScheduleEvaluator.GetNextTransition(schedule, now);
+        var transition = ScheduleEvaluator.FormatTransition(next, now);
+        var window = $"{schedule.StartTime}–{schedule.EndTime}";
+        return within
+            ? $"In window ({window}) · {transition}"
+            : $"Outside ({window}) · {transition}";
     }
 
     private void Window_Closing(object sender, CancelEventArgs e)
@@ -793,6 +879,19 @@ internal sealed class AppListItem : INotifyPropertyChanged
     public string HealthUrl { get; set; } = string.Empty;
     public int ExpectedStatusCode { get; set; } = 200;
     public LaunchMode LaunchMode { get; set; } = LaunchMode.Interactive;
+    public bool ScheduleEnabled { get; set; }
+    public string ScheduleStartTime { get; set; } = "09:00";
+    public string ScheduleEndTime { get; set; } = "18:00";
+    public List<DayOfWeek> ScheduleDays { get; set; } =
+    [
+        DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+        DayOfWeek.Thursday, DayOfWeek.Friday
+    ];
+    public bool ResourcesEnabled { get; set; }
+    public bool ResourcesIncludeChildren { get; set; } = true;
+    public int MaxMemoryMegabytes { get; set; }
+    public int MaxCpuPercent { get; set; }
+    public int BreachDurationSeconds { get; set; } = 300;
 
     public string KindLabel => Kind switch
     {
@@ -822,6 +921,7 @@ internal sealed class AppListItem : INotifyPropertyChanged
         {
             ApplicationStatus.Unknown => "—",
             ApplicationStatus.NotConfigured => Enabled ? "Unknown" : "Disabled",
+            ApplicationStatus.OutsideSchedule => "Scheduled off",
             ApplicationStatus.RestartLimitReached => "Limit",
             _ => status.ToString()
         };
@@ -877,7 +977,22 @@ internal sealed class AppListItem : INotifyPropertyChanged
         HealthEnabled = app.Health.Enabled,
         HealthUrl = app.Health.Url,
         ExpectedStatusCode = app.Health.ExpectedStatusCode,
-        LaunchMode = app.Launch.Mode
+        LaunchMode = app.Launch.Mode,
+        ScheduleEnabled = app.Schedule.Enabled,
+        ScheduleStartTime = string.IsNullOrWhiteSpace(app.Schedule.StartTime) ? "09:00" : app.Schedule.StartTime,
+        ScheduleEndTime = string.IsNullOrWhiteSpace(app.Schedule.EndTime) ? "18:00" : app.Schedule.EndTime,
+        ScheduleDays = app.Schedule.DaysOfWeek is { Count: > 0 }
+            ? app.Schedule.DaysOfWeek.ToList()
+            :
+            [
+                DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+                DayOfWeek.Thursday, DayOfWeek.Friday
+            ],
+        ResourcesEnabled = app.Resources.Enabled,
+        ResourcesIncludeChildren = app.Resources.IncludeChildProcesses,
+        MaxMemoryMegabytes = app.Resources.MaxMemoryMegabytes,
+        MaxCpuPercent = app.Resources.MaxCpuPercent,
+        BreachDurationSeconds = app.Resources.BreachDurationSeconds
     };
 
     public MonitoredApplicationConfig ToConfig() => new()
@@ -937,6 +1052,21 @@ internal sealed class AppListItem : INotifyPropertyChanged
         Launch = new LaunchConfig
         {
             Mode = LaunchMode
+        },
+        Schedule = new ScheduleConfig
+        {
+            Enabled = ScheduleEnabled,
+            StartTime = ScheduleStartTime,
+            EndTime = ScheduleEndTime,
+            DaysOfWeek = ScheduleDays.ToList()
+        },
+        Resources = new ResourceLimitsConfig
+        {
+            Enabled = ResourcesEnabled,
+            MaxMemoryMegabytes = MaxMemoryMegabytes,
+            MaxCpuPercent = MaxCpuPercent,
+            BreachDurationSeconds = BreachDurationSeconds,
+            IncludeChildProcesses = ResourcesIncludeChildren
         }
     };
 }
