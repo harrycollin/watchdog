@@ -37,9 +37,11 @@ That publishes `KioskWatchdogSetup-<version>.exe` (and a portable zip) on the re
 ## Develop
 
 ```bat
-dotnet test
+dotnet test tests\KioskWatchdog.Core.Tests
 dotnet publish src\KioskWatchdog.UI\KioskWatchdog.UI.csproj -c Release -r win-x64 --self-contained true -o artifacts\publish
 ```
+
+CI also runs Windows integration tests against `KioskWatchdog.TestApp` (crash / exit / health-fail) and a minimal Electron fixture in `fixtures/electron-health-app`.
 
 `KioskWatchdog.TestApp` is for local failure simulation only (not installed).
 

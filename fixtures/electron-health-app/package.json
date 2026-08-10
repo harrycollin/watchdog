@@ -1,0 +1,13 @@
+{
+  "name": "electron-health-app",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "description": "Minimal Electron fixture for KioskWatchdog CI (localhost health + hidden window)",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "35.1.2"
+  }
+}

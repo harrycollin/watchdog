@@ -21,7 +21,50 @@ permissions:
   contents: write
 
 jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Unit tests
+        run: dotnet test tests/KioskWatchdog.Core.Tests/KioskWatchdog.Core.Tests.csproj -c Release --verbosity minimal
+
+  integration:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: fixtures/electron-health-app/package.json
+
+      - name: Publish TestApp
+        run: >
+          dotnet publish src/KioskWatchdog.TestApp/KioskWatchdog.TestApp.csproj
+          -c Release -r win-x64 --self-contained false
+          -o artifacts/testapp
+
+      - name: Install Electron fixture
+        working-directory: fixtures/electron-health-app
+        run: npm install --no-fund --no-audit
+
+      - name: Integration tests
+        env:
+          KIOSK_WATCHDOG_TESTAPP: ${{ github.workspace }}\artifacts\testapp\KioskWatchdog.TestApp.exe
+        run: >
+          dotnet test tests/KioskWatchdog.Integration.Tests/KioskWatchdog.Integration.Tests.csproj
+          -c Release --verbosity normal
+
   build:
+    needs: [unit, integration]
     runs-on: windows-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -65,9 +108,6 @@ jobs:
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT
           Write-Host "Version=$version Tag=$tag Release=$shouldRelease"
-
-      - name: Test
-        run: dotnet test -c Release --verbosity minimal
 
       - name: Publish app
         run: >
