@@ -1,0 +1,114 @@
+<Window x:Class="KioskWatchdog.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Global settings"
+        Height="560"
+        Width="540"
+        MinHeight="480"
+        MinWidth="480"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Background="#FFF5F5F5"
+        ShowInTaskbar="False">
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+      <Button Content="Cancel" Width="90" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click" />
+      <Button Content="OK" Width="90" IsDefault="True" Click="Ok_Click"
+              Background="#FF2563EB" Foreground="White" FontWeight="SemiBold" Padding="8,4" />
+    </StackPanel>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+        <Border Background="White"
+                BorderBrush="#FFDDDDDD"
+                BorderThickness="1"
+                Padding="14"
+                CornerRadius="4"
+                Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="Watchdog service" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+            <TextBlock Text="Controls the background Windows Service. This window never opens at login."
+                       Foreground="#FF666666"
+                       Margin="0,0,0,12"
+                       TextWrapping="Wrap" />
+
+            <CheckBox x:Name="StartOnBootCheck"
+                      Content="Start watchdog service automatically when Windows boots"
+                      Margin="0,0,0,8" />
+            <TextBlock Text="When off, the service is manual (start from here or Services.msc)."
+                       Foreground="#FF94A3B8"
+                       FontSize="11"
+                       Margin="24,0,0,12"
+                       TextWrapping="Wrap" />
+
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="Start service" Margin="0,0,6,0" Padding="10,4" Click="StartService_Click" />
+                <Button Content="Stop service" Padding="10,4" Click="StopService_Click" />
+              </StackPanel>
+              <TextBlock x:Name="ServiceStatusText"
+                         VerticalAlignment="Center"
+                         Foreground="#FF64748B"
+                         Text="Service: —" />
+            </DockPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Background="White"
+                BorderBrush="#FFDDDDDD"
+                BorderThickness="1"
+                Padding="14"
+                CornerRadius="4">
+          <StackPanel>
+            <TextBlock Text="Webhook notifications" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+            <TextBlock Text="Machine-wide. Sent by the service in the background (does not block monitoring)."
+                       Foreground="#FF666666"
+                       Margin="0,0,0,12"
+                       TextWrapping="Wrap" />
+
+            <CheckBox x:Name="WebhookEnabledCheck" Content="Enable webhook events" Margin="0,0,0,8" />
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="140" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+
+              <TextBlock Grid.Row="0" Grid.Column="0" Text="Webhook URL" VerticalAlignment="Center" Margin="0,0,0,8" />
+              <TextBox x:Name="WebhookUrlBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
+                       ToolTip="https://example.com/hooks/watchdog" />
+
+              <TextBlock Grid.Row="1" Grid.Column="0" Text="Timeout (s)" VerticalAlignment="Center" />
+              <TextBox x:Name="WebhookTimeoutBox" Grid.Row="1" Grid.Column="1" Width="80" HorizontalAlignment="Left" Text="10" />
+            </Grid>
+
+            <TextBlock Text="Events" FontWeight="SemiBold" Margin="0,4,0,6" />
+            <WrapPanel Margin="0,0,0,8">
+              <CheckBox x:Name="EventRestartLimitCheck" Content="Restart limit reached" Margin="0,0,16,6" IsChecked="True" />
+              <CheckBox x:Name="EventErrorCheck" Content="Error" Margin="0,0,16,6" IsChecked="True" />
+              <CheckBox x:Name="EventRestartCheck" Content="Restart" Margin="0,0,16,6" />
+              <CheckBox x:Name="EventUnhealthyCheck" Content="Unhealthy" Margin="0,0,16,6" />
+              <CheckBox x:Name="EventRecoveredCheck" Content="Recovered" Margin="0,0,16,6" />
+            </WrapPanel>
+
+            <Separator Margin="0,4,0,10" />
+
+            <CheckBox x:Name="StatusReportEnabledCheck" Content="Periodic status report (all watches)" Margin="0,0,0,8" />
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="140" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="Interval (min)" VerticalAlignment="Center" />
+              <TextBox x:Name="StatusReportIntervalBox" Grid.Column="1" Width="80" HorizontalAlignment="Left" Text="60" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

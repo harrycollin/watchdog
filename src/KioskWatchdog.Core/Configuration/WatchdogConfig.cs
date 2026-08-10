@@ -12,6 +12,8 @@ public sealed class WatchdogConfig
 
     public List<MonitoredApplicationConfig> Applications { get; set; } = new();
 
+    public ServiceSettingsConfig Service { get; set; } = new();
+
     public NotificationsConfig Notifications { get; set; } = new();
 
     public static string DefaultConfigPath =>
@@ -24,6 +26,7 @@ public sealed class WatchdogConfig
     /// </summary>
     public void Normalize()
     {
+        Service ??= new ServiceSettingsConfig();
         Notifications ??= new NotificationsConfig();
         Notifications.Webhook ??= new WebhookConfig();
         Notifications.Webhook.Events ??= new WebhookEventsConfig();

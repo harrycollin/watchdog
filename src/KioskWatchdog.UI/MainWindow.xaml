@@ -20,6 +20,7 @@
                   Margin="0,0,8,0">
             <TextBlock x:Name="StatusChipText" Text="—" FontWeight="SemiBold" FontSize="12" />
           </Border>
+          <Button Content="Settings" Padding="10,4" Margin="0,0,8,0" Click="Settings_Click" />
           <Button Content="Open logs" Padding="10,4" Click="OpenLogs_Click" />
         </StackPanel>
         <StackPanel>
@@ -40,7 +41,7 @@
 
     <Grid>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="260" />
+        <ColumnDefinition Width="280" />
         <ColumnDefinition Width="12" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
@@ -67,10 +68,22 @@
                    Background="Transparent">
             <ListBox.ItemTemplate>
               <DataTemplate>
-                <StackPanel Margin="4,6">
-                  <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
-                  <TextBlock FontSize="11" Foreground="#FF64748B" Text="{Binding KindLabel}" />
-                </StackPanel>
+                <DockPanel Margin="4,6">
+                  <Border DockPanel.Dock="Right"
+                          Background="{Binding StatusBrush}"
+                          CornerRadius="4"
+                          Padding="8,2"
+                          Margin="8,0,0,0"
+                          VerticalAlignment="Center">
+                    <TextBlock Text="{Binding StatusLabel}"
+                               FontSize="11"
+                               FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock FontSize="11" Foreground="#FF64748B" Text="{Binding KindLabel}" />
+                  </StackPanel>
+                </DockPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
@@ -133,62 +146,6 @@
                 <Button Content="Reset Counter" Width="110" Margin="0,0,8,8" Click="ResetCounter_Click" />
                 <Button Content="Test Health" Width="100" Margin="0,0,8,8" Click="TestHealth_Click" />
               </WrapPanel>
-            </StackPanel>
-          </Border>
-
-          <Border Background="White"
-                  BorderBrush="#FFDDDDDD"
-                  BorderThickness="1"
-                  Padding="14"
-                  CornerRadius="4"
-                  Margin="0,0,0,12">
-            <StackPanel>
-              <TextBlock Text="Webhook notifications" FontWeight="SemiBold" Margin="0,0,0,4" />
-              <TextBlock Text="Machine-wide. Sent by the service in the background (does not block monitoring)."
-                         Foreground="#FF666666"
-                         Margin="0,0,0,10"
-                         TextWrapping="Wrap" />
-
-              <CheckBox x:Name="WebhookEnabledCheck" Content="Enable webhook events" Margin="0,0,0,8" />
-
-              <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="140" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Webhook URL" VerticalAlignment="Center" Margin="0,0,0,8" />
-                <TextBox x:Name="WebhookUrlBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
-                         ToolTip="https://example.com/hooks/watchdog" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Timeout (s)" VerticalAlignment="Center" />
-                <TextBox x:Name="WebhookTimeoutBox" Grid.Row="1" Grid.Column="1" Width="80" HorizontalAlignment="Left" Text="10" />
-              </Grid>
-
-              <TextBlock Text="Events" FontWeight="SemiBold" Margin="0,4,0,6" />
-              <WrapPanel Margin="0,0,0,8">
-                <CheckBox x:Name="EventRestartLimitCheck" Content="Restart limit reached" Margin="0,0,16,6" IsChecked="True" />
-                <CheckBox x:Name="EventErrorCheck" Content="Error" Margin="0,0,16,6" IsChecked="True" />
-                <CheckBox x:Name="EventRestartCheck" Content="Restart" Margin="0,0,16,6" />
-                <CheckBox x:Name="EventUnhealthyCheck" Content="Unhealthy" Margin="0,0,16,6" />
-                <CheckBox x:Name="EventRecoveredCheck" Content="Recovered" Margin="0,0,16,6" />
-              </WrapPanel>
-
-              <Separator Margin="0,4,0,10" />
-
-              <CheckBox x:Name="StatusReportEnabledCheck" Content="Periodic status report (all watches)" Margin="0,0,0,8" />
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="140" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Interval (min)" VerticalAlignment="Center" />
-                <TextBox x:Name="StatusReportIntervalBox" Grid.Column="1" Width="80" HorizontalAlignment="Left" Text="60" />
-              </Grid>
             </StackPanel>
           </Border>
 

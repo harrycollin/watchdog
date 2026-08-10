@@ -12,11 +12,13 @@ One Windows app: **`KioskWatchdog.exe`**
 Run **`KioskWatchdogSetup-<version>.exe`** from a [GitHub Release](../../releases) (admin).
 
 - Installs to `C:\Program Files\KioskWatchdog`
-- Registers and starts the **KioskWatchdog** service
-- Creates a Start Menu shortcut
+- Registers and starts the **KioskWatchdog** service (automatic start at boot by default)
+- Creates a Start Menu shortcut (does **not** open the UI at login)
 - **Does not** write a sample `config.json` — open the UI, pick your app, and Save
 - **Running Setup again upgrades that same install** (same AppId / folder). It does not create a second copy.
 - Existing `C:\ProgramData\KioskWatchdog\config.json` is kept on upgrade
+
+In the UI **Global settings**, you can turn off “Start watchdog service automatically when Windows boots” (`service.startOnBoot` in config). That only changes the Windows Service start type — the configuration window never auto-opens.
 
 ### Create a release
 

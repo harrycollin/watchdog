@@ -3,10 +3,12 @@ using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 using KioskWatchdog.Core.Configuration;
 using KioskWatchdog.Core.Health;
 using KioskWatchdog.Core.Ipc;
+using KioskWatchdog.Core.Process;
 using KioskWatchdog.Core.Status;
 using Microsoft.Win32;
 using MessageBox = System.Windows.MessageBox;
@@ -21,6 +23,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _refreshTimer;
     private readonly ObservableCollection<AppListItem> _apps = new();
     private readonly TrayIconService _tray;
+    private ServiceSettingsConfig _service = new();
+    private NotificationsConfig _notifications = new();
     private bool _suppressSelectionEvents;
     private bool _allowClose;
     private AppListItem? _selected;
@@ -65,7 +69,8 @@ public partial class MainWindow : Window
             _selected = _apps[0];
             AppList.SelectedItem = _selected;
             LoadSelectedIntoForm();
-            LoadNotificationsIntoForm(config.Notifications);
+            _service = config.Service ?? new ServiceSettingsConfig();
+            _notifications = config.Notifications;
         }
         finally
         {
@@ -73,46 +78,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private void LoadNotificationsIntoForm(NotificationsConfig notifications)
+    private void Settings_Click(object sender, RoutedEventArgs e)
     {
-        var webhook = notifications.Webhook;
-        WebhookEnabledCheck.IsChecked = webhook.Enabled;
-        WebhookUrlBox.Text = webhook.Url;
-        WebhookTimeoutBox.Text = webhook.TimeoutSeconds.ToString();
-
-        EventRestartLimitCheck.IsChecked = webhook.Events.RestartLimitReached;
-        EventErrorCheck.IsChecked = webhook.Events.Error;
-        EventRestartCheck.IsChecked = webhook.Events.Restart;
-        EventUnhealthyCheck.IsChecked = webhook.Events.Unhealthy;
-        EventRecoveredCheck.IsChecked = webhook.Events.Recovered;
-
-        StatusReportEnabledCheck.IsChecked = webhook.StatusReport.Enabled;
-        StatusReportIntervalBox.Text = webhook.StatusReport.IntervalMinutes.ToString();
-    }
-
-    private NotificationsConfig ReadNotificationsFromForm()
-        => new()
+        var dialog = new SettingsWindow(_service, _notifications)
         {
-            Webhook = new WebhookConfig
-            {
-                Enabled = WebhookEnabledCheck.IsChecked == true,
-                Url = WebhookUrlBox.Text.Trim(),
-                TimeoutSeconds = ParseInt(WebhookTimeoutBox.Text, 10),
-                Events = new WebhookEventsConfig
-                {
-                    RestartLimitReached = EventRestartLimitCheck.IsChecked == true,
-                    Error = EventErrorCheck.IsChecked == true,
-                    Restart = EventRestartCheck.IsChecked == true,
-                    Unhealthy = EventUnhealthyCheck.IsChecked == true,
-                    Recovered = EventRecoveredCheck.IsChecked == true
-                },
-                StatusReport = new StatusReportConfig
-                {
-                    Enabled = StatusReportEnabledCheck.IsChecked == true,
-                    IntervalMinutes = ParseInt(StatusReportIntervalBox.Text, 60)
-                }
-            }
+            Owner = this
         };
+
+        if (dialog.ShowDialog() == true)
+        {
+            _service = dialog.ServiceResult;
+            _notifications = dialog.NotificationsResult;
+            FooterText.Text = "Settings updated. Save configuration to apply.";
+        }
+    }
 
     private void AppList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
@@ -280,7 +259,11 @@ public partial class MainWindow : Window
         PushFormToSelected();
         var config = new WatchdogConfig
         {
-            Notifications = ReadNotificationsFromForm()
+            Service = new ServiceSettingsConfig
+            {
+                StartOnBoot = _service.StartOnBoot
+            },
+            Notifications = _notifications
         };
         foreach (var app in _apps)
             config.Applications.Add(app.ToConfig());
@@ -443,6 +426,8 @@ public partial class MainWindow : Window
     private void RefreshStatus()
     {
         var snapshot = StatusFilePublisher.ReadSnapshot();
+        UpdateAppListStatuses(snapshot);
+
         var appId = _selected?.Id;
         WatchdogStatus? status = null;
 
@@ -467,15 +452,7 @@ public partial class MainWindow : Window
 
         StatusValue.Text = status.Status.ToString();
         StatusChipText.Text = status.Status.ToString();
-        StatusChip.Background = status.Status switch
-        {
-            ApplicationStatus.Running => BrushFrom("#D1FAE5"),
-            ApplicationStatus.Unhealthy or ApplicationStatus.Error or ApplicationStatus.RestartLimitReached
-                => BrushFrom("#FEE2E2"),
-            ApplicationStatus.Starting or ApplicationStatus.Restarting => BrushFrom("#DBEAFE"),
-            ApplicationStatus.Stopped or ApplicationStatus.NotConfigured => BrushFrom("#E5E7EB"),
-            _ => BrushFrom("#E5E7EB")
-        };
+        StatusChip.Background = BrushForStatus(status.Status);
         PidValue.Text = status.ProcessId?.ToString() ?? "—";
         RestartValue.Text = status.RestartCount.ToString();
         LastStartValue.Text = status.ProcessStartTime?.ToLocalTime().ToString("g") ?? "—";
@@ -498,6 +475,21 @@ public partial class MainWindow : Window
             : $"Status updated {FormatAgo(snapshot.UpdatedAt)}";
 
         UpdateTrayTooltip(snapshot);
+    }
+
+    private void UpdateAppListStatuses(WatchdogStatusSnapshot? snapshot)
+    {
+        foreach (var app in _apps)
+        {
+            var match = snapshot?.Applications?.FirstOrDefault(a =>
+                string.Equals(a.Id, app.Id, StringComparison.OrdinalIgnoreCase));
+
+            var status = app.Enabled
+                ? match?.Status ?? ApplicationStatus.Unknown
+                : ApplicationStatus.NotConfigured;
+
+            app.SetStatus(status);
+        }
     }
 
     private void UpdateTrayTooltip(WatchdogStatusSnapshot? snapshot)
@@ -524,8 +516,24 @@ public partial class MainWindow : Window
                             (bad > 0 ? $", {bad} issue(s)" : ""));
     }
 
-    private static System.Windows.Media.SolidColorBrush BrushFrom(string hex)
-        => (System.Windows.Media.SolidColorBrush)new System.Windows.Media.BrushConverter().ConvertFrom(hex)!;
+    internal static SolidColorBrush BrushForStatus(ApplicationStatus status)
+        => status switch
+        {
+            ApplicationStatus.Running => BrushFrom("#D1FAE5"),
+            ApplicationStatus.Unhealthy or ApplicationStatus.Error or ApplicationStatus.RestartLimitReached
+                => BrushFrom("#FEE2E2"),
+            ApplicationStatus.Starting or ApplicationStatus.Restarting => BrushFrom("#DBEAFE"),
+            ApplicationStatus.Stopped or ApplicationStatus.NotConfigured => BrushFrom("#E5E7EB"),
+            _ => BrushFrom("#E5E7EB")
+        };
+
+    private static SolidColorBrush BrushFrom(string hex)
+    {
+        var brush = (SolidColorBrush)new BrushConverter().ConvertFrom(hex)!;
+        if (brush.CanFreeze)
+            brush.Freeze();
+        return brush;
+    }
 
     private static string FormatAgo(DateTimeOffset? value)
     {
@@ -573,10 +581,20 @@ public partial class MainWindow : Window
             }
 
             _configStore.Save(config);
+
+            // Prefer applying immediately; the service also applies this on reload (as SYSTEM).
+            var startOnBootNote = "";
+            if (!WatchdogServiceManager.TrySetStartOnBoot(config.Service.StartOnBoot, out var scmError))
+            {
+                startOnBootNote =
+                    " Start-on-boot will be applied when the service reloads the config" +
+                    (string.IsNullOrWhiteSpace(scmError) ? "." : $" ({scmError}).");
+            }
+
             LoadAppsFromConfig(config);
             FooterText.Text = "Configuration saved. Service will reload automatically.";
             MessageBox.Show(
-                "Configuration saved. The watchdog service will reload it automatically.",
+                "Configuration saved. The watchdog service will reload it automatically." + startOnBootNote,
                 "Saved",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -689,6 +707,10 @@ public partial class MainWindow : Window
 
 internal sealed class AppListItem : INotifyPropertyChanged
 {
+    private ApplicationStatus _status = ApplicationStatus.Unknown;
+    private string _statusLabel = "—";
+    private SolidColorBrush _statusBrush = MainWindow.BrushForStatus(ApplicationStatus.Unknown);
+
     public string Id { get; set; } = WatchdogConfig.DefaultApplicationId;
     public bool Enabled { get; set; } = true;
     public ApplicationKind Kind { get; set; } = ApplicationKind.Process;
@@ -725,6 +747,9 @@ internal sealed class AppListItem : INotifyPropertyChanged
         _ => "Process"
     };
 
+    public string StatusLabel => _statusLabel;
+    public SolidColorBrush StatusBrush => _statusBrush;
+
     public string ListLabel
     {
         get
@@ -735,6 +760,26 @@ internal sealed class AppListItem : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void SetStatus(ApplicationStatus status)
+    {
+        var label = status switch
+        {
+            ApplicationStatus.Unknown => "—",
+            ApplicationStatus.NotConfigured => Enabled ? "Unknown" : "Disabled",
+            ApplicationStatus.RestartLimitReached => "Limit",
+            _ => status.ToString()
+        };
+
+        if (_status == status && _statusLabel == label)
+            return;
+
+        _status = status;
+        _statusLabel = label;
+        _statusBrush = MainWindow.BrushForStatus(status);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusLabel)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusBrush)));
+    }
 
     public void NotifyListLabelChanged()
     {

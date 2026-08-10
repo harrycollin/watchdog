@@ -74,9 +74,25 @@ public sealed class WatchdogEngine : BackgroundService
             ReconcileSlots(_config);
         }
 
+        ApplyServiceStartType(_config.Service.StartOnBoot);
+
         _logger.LogInformation(
             "Configuration changed ({Count} application(s)).",
             _config.Applications.Count);
+    }
+
+    private void ApplyServiceStartType(bool startOnBoot)
+    {
+        if (!WatchdogServiceManager.IsSupported)
+            return;
+
+        if (!WatchdogServiceManager.TrySetStartOnBoot(startOnBoot, out var error, _logger))
+        {
+            _logger.LogDebug(
+                "Could not apply service start-on-boot={StartOnBoot}: {Error}",
+                startOnBoot,
+                error);
+        }
     }
 
     public Task StartApplicationAsync(string? applicationId = null, CancellationToken cancellationToken = default)
@@ -187,6 +203,7 @@ public sealed class WatchdogEngine : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Watchdog started.");
+        ApplyServiceStartType(CurrentConfig.Service.StartOnBoot);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -1108,6 +1125,10 @@ public sealed class WatchdogEngine : BackgroundService
         source.Normalize();
         return new WatchdogConfig
         {
+            Service = new ServiceSettingsConfig
+            {
+                StartOnBoot = source.Service.StartOnBoot
+            },
             Notifications = new NotificationsConfig
             {
                 Webhook = new WebhookConfig

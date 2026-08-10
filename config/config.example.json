@@ -1,4 +1,7 @@
 {
+  "service": {
+    "startOnBoot": true
+  },
   "notifications": {
     "webhook": {
       "enabled": false,
