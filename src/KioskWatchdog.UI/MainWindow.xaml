@@ -1,0 +1,168 @@
+<Window x:Class="KioskWatchdog.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Kiosk Watchdog"
+        Height="720" Width="920"
+        MinHeight="600" MinWidth="800"
+        Background="{StaticResource BgBrush}"
+        FontFamily="Segoe UI"
+        FontSize="14">
+  <DockPanel Margin="20">
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+      <TextBlock Text="Kiosk Watchdog"
+                 FontSize="28" FontWeight="SemiBold"
+                 Foreground="{StaticResource TextBrush}"/>
+      <TextBlock Text="Configuration and status for the kiosk monitor"
+                 Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/>
+    </StackPanel>
+
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+      <Button Content="Test Health Check" Width="140" Margin="0,0,8,0" Click="TestHealth_Click"/>
+      <Button Content="Open Logs" Width="110" Margin="0,0,8,0" Click="OpenLogs_Click"/>
+      <Button Content="Save Configuration" Width="150" Click="SaveConfig_Click"
+              Background="{StaticResource AccentBrush}" Foreground="White" FontWeight="SemiBold"/>
+    </StackPanel>
+
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="1.1*"/>
+        <ColumnDefinition Width="16"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <!-- Dashboard -->
+      <Border Grid.Column="0" Background="{StaticResource PanelBrush}"
+              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="16" CornerRadius="4">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Text="Dashboard" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,16,0,0">
+            <Button Content="Start" Width="90" Margin="0,0,8,0" Click="Start_Click"/>
+            <Button Content="Stop" Width="90" Margin="0,0,8,0" Click="Stop_Click"/>
+            <Button Content="Restart" Width="90" Margin="0,0,8,0" Click="Restart_Click"/>
+            <Button Content="Reset Counter" Width="120" Click="ResetCounter_Click"/>
+          </StackPanel>
+
+          <StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+              <Ellipse x:Name="StatusDot" Width="14" Height="14" Fill="Gray" Margin="0,0,8,0" VerticalAlignment="Center"/>
+              <TextBlock x:Name="StatusText" Text="UNKNOWN" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="160"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+
+              <TextBlock Grid.Row="0" Text="Application:" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+              <TextBlock Grid.Row="0" Grid.Column="1" x:Name="AppNameText" Text="—" Margin="0,0,0,8"/>
+
+              <TextBlock Grid.Row="1" Text="PID:" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+              <TextBlock Grid.Row="1" Grid.Column="1" x:Name="PidText" Text="—" Margin="0,0,0,8"/>
+
+              <TextBlock Grid.Row="2" Text="Uptime:" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+              <TextBlock Grid.Row="2" Grid.Column="1" x:Name="UptimeText" Text="—" Margin="0,0,0,8"/>
+
+              <TextBlock Grid.Row="3" Text="Last Health Check:" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+              <TextBlock Grid.Row="3" Grid.Column="1" x:Name="LastHealthText" Text="—" Margin="0,0,0,8"/>
+
+              <TextBlock Grid.Row="4" Text="Last Restart:" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+              <TextBlock Grid.Row="4" Grid.Column="1" x:Name="LastRestartText" Text="—" Margin="0,0,0,8"/>
+
+              <TextBlock Grid.Row="5" Text="Restart Count:" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+              <TextBlock Grid.Row="5" Grid.Column="1" x:Name="RestartCountText" Text="0" Margin="0,0,0,8"/>
+
+              <TextBlock Grid.Row="6" Text="Last Error:" Foreground="{StaticResource MutedBrush}"/>
+              <TextBlock Grid.Row="6" Grid.Column="1" x:Name="LastErrorText" Text="—" TextWrapping="Wrap"/>
+            </Grid>
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- Configuration -->
+      <Border Grid.Column="2" Background="{StaticResource PanelBrush}"
+              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="16" CornerRadius="4">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <TextBlock Text="Configuration" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Executable path" Foreground="{StaticResource MutedBrush}"/>
+            <TextBox x:Name="ExecutablePathBox" Margin="0,4,0,12"/>
+
+            <TextBlock Text="Arguments" Foreground="{StaticResource MutedBrush}"/>
+            <TextBox x:Name="ArgumentsBox" Margin="0,4,0,12"/>
+
+            <TextBlock Text="Working directory" Foreground="{StaticResource MutedBrush}"/>
+            <TextBox x:Name="WorkingDirectoryBox" Margin="0,4,0,12"/>
+
+            <TextBlock Text="Display name" Foreground="{StaticResource MutedBrush}"/>
+            <TextBox x:Name="DisplayNameBox" Margin="0,4,0,12"/>
+
+            <TextBlock Text="Health URL" Foreground="{StaticResource MutedBrush}"/>
+            <TextBox x:Name="HealthUrlBox" Margin="0,4,0,12"/>
+
+            <CheckBox x:Name="HealthEnabledBox" Content="Health checks enabled" Margin="0,0,0,12"/>
+
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+
+              <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
+                <TextBlock Text="Health interval (sec)" Foreground="{StaticResource MutedBrush}"/>
+                <TextBox x:Name="HealthIntervalBox" Margin="0,4,0,0"/>
+              </StackPanel>
+              <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,12">
+                <TextBlock Text="Health timeout (sec)" Foreground="{StaticResource MutedBrush}"/>
+                <TextBox x:Name="HealthTimeoutBox" Margin="0,4,0,0"/>
+              </StackPanel>
+
+              <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,12">
+                <TextBlock Text="Process check (sec)" Foreground="{StaticResource MutedBrush}"/>
+                <TextBox x:Name="ProcessIntervalBox" Margin="0,4,0,0"/>
+              </StackPanel>
+              <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,12">
+                <TextBlock Text="Restart delay (sec)" Foreground="{StaticResource MutedBrush}"/>
+                <TextBox x:Name="RestartDelayBox" Margin="0,4,0,0"/>
+              </StackPanel>
+
+              <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,0,12">
+                <TextBlock Text="Max restarts" Foreground="{StaticResource MutedBrush}"/>
+                <TextBox x:Name="MaxRestartsBox" Margin="0,4,0,0"/>
+              </StackPanel>
+              <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,12">
+                <TextBlock Text="Restart window (min)" Foreground="{StaticResource MutedBrush}"/>
+                <TextBox x:Name="RestartWindowBox" Margin="0,4,0,0"/>
+              </StackPanel>
+
+              <StackPanel Grid.Row="3" Grid.Column="0">
+                <TextBlock Text="Launch mode" Foreground="{StaticResource MutedBrush}"/>
+                <ComboBox x:Name="LaunchModeBox" Margin="0,4,0,0">
+                  <ComboBoxItem Content="Interactive" Tag="Interactive" IsSelected="True"/>
+                  <ComboBoxItem Content="Service" Tag="Service"/>
+                </ComboBox>
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>

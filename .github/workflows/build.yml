@@ -1,0 +1,139 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.0.1). Leave empty to use tag or Directory.Build.props."
+        required: false
+        type: string
+      create_release:
+        description: "Create a GitHub Release"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = ""
+          $shouldRelease = "false"
+
+          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.version }}".Trim()) {
+            $version = "${{ inputs.version }}".Trim().TrimStart("v")
+            if ("${{ inputs.create_release }}" -eq "true") { $shouldRelease = "true" }
+          }
+          elseif ("${{ github.ref_type }}" -eq "tag") {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+            $shouldRelease = "true"
+          }
+          else {
+            [xml]$props = Get-Content Directory.Build.props
+            $version = $props.Project.PropertyGroup.Version
+            if (-not $version) { $version = "0.0.0-ci" }
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+') {
+            throw "Version must look like 1.2.3 (got '$version')"
+          }
+
+          $tag = "v$version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT
+          Write-Host "Version=$version Tag=$tag Release=$shouldRelease"
+
+      - name: Test
+        run: dotnet test -c Release --verbosity minimal
+
+      - name: Publish app
+        run: >
+          dotnet publish src/KioskWatchdog.UI/KioskWatchdog.UI.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:AssemblyVersion=${{ steps.version.outputs.version }}.0
+          -p:FileVersion=${{ steps.version.outputs.version }}.0
+          -o artifacts/publish
+
+      - name: Copy example config
+        run: Copy-Item config/config.example.json artifacts/publish/
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $iscc = Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
+
+          & $iscc "/DMyAppVersion=${{ steps.version.outputs.version }}" installer\KioskWatchdog.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
+          $setup = Get-ChildItem artifacts\installer\KioskWatchdogSetup-*.exe | Select-Object -First 1
+          if (-not $setup) { throw "Installer EXE not found" }
+          Write-Host "Built $($setup.FullName)"
+
+      - name: Stage release folder
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item artifacts\installer\KioskWatchdogSetup-*.exe release\
+          Compress-Archive -Path artifacts\publish\* -DestinationPath "release\KioskWatchdog-win-x64-$version.zip" -Force
+          Get-ChildItem release | Format-Table Name, Length
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: KioskWatchdog-${{ steps.version.outputs.version }}
+          path: release/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: needs.build.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: KioskWatchdog-${{ needs.build.outputs.version }}
+          path: release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: Kiosk Watchdog ${{ needs.build.outputs.version }}
+          generate_release_notes: true
+          files: release/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

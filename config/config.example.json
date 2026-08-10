@@ -1,0 +1,29 @@
+{
+  "application": {
+    "executablePath": "C:\\Kiosk\\MyApp\\MyApp.exe",
+    "arguments": "",
+    "workingDirectory": "C:\\Kiosk\\MyApp",
+    "displayName": "My Kiosk"
+  },
+  "monitoring": {
+    "processCheckIntervalSeconds": 5,
+    "healthCheckIntervalSeconds": 10,
+    "healthTimeoutSeconds": 45,
+    "gracefulTerminationTimeoutSeconds": 10
+  },
+  "restart": {
+    "restartOnExit": true,
+    "restartOnUnhealthy": true,
+    "restartDelaySeconds": 5,
+    "maxRestarts": 5,
+    "restartWindowMinutes": 10
+  },
+  "health": {
+    "enabled": true,
+    "type": "http",
+    "url": "http://127.0.0.1:3000/health"
+  },
+  "launch": {
+    "mode": "interactive"
+  }
+}
