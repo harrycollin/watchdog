@@ -224,9 +224,24 @@ public sealed class WatchdogEngine : BackgroundService
         {
             UpdateStatus(s =>
             {
-                s.Status = ApplicationStatus.Error;
-                s.LastError = "Executable path is not configured.";
+                s.Status = ApplicationStatus.NotConfigured;
+                s.ProcessId = null;
+                s.ProcessStartTime = null;
+                s.LastError = "Configure an executable path and save before starting.";
             });
+            return;
+        }
+
+        if (!File.Exists(config.Application.ExecutablePath))
+        {
+            UpdateStatus(s =>
+            {
+                s.Status = ApplicationStatus.NotConfigured;
+                s.ProcessId = null;
+                s.ProcessStartTime = null;
+                s.LastError = $"Executable not found: {config.Application.ExecutablePath}";
+            });
+            // Do not auto-restart — bad/sample paths must not burn the restart budget.
             return;
         }
 
@@ -246,9 +261,10 @@ public sealed class WatchdogEngine : BackgroundService
         if (instances.Count > 1)
         {
             _logger.LogWarning(
-                "Multiple instances ({Count}) of {Path} detected. Not launching another copy.",
+                "Multiple root instances ({Count}) of {Path} detected. Tracking PID {Pid}; not launching another copy.",
                 instances.Count,
-                config.Application.ExecutablePath);
+                config.Application.ExecutablePath,
+                instances[0].Id);
 
             _trackedPid = instances[0].Id;
             UpdateRunningStatus(instances[0], ApplicationStatus.Running);

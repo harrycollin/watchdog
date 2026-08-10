@@ -14,6 +14,7 @@ Run **`KioskWatchdogSetup-<version>.exe`** from a [GitHub Release](../../release
 - Installs to `C:\Program Files\KioskWatchdog`
 - Registers and starts the **KioskWatchdog** service
 - Creates a Start Menu shortcut
+- **Does not** write a sample `config.json` — open the UI, pick your app, and Save
 - **Running Setup again upgrades that same install** (same AppId / folder). It does not create a second copy.
 - Existing `C:\ProgramData\KioskWatchdog\config.json` is kept on upgrade
 

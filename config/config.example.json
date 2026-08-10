@@ -1,8 +1,8 @@
 {
   "application": {
-    "executablePath": "C:\\Kiosk\\MyApp\\MyApp.exe",
+    "executablePath": "",
     "arguments": "",
-    "workingDirectory": "C:\\Kiosk\\MyApp",
+    "workingDirectory": "",
     "displayName": "My Kiosk"
   },
   "monitoring": {
@@ -19,9 +19,9 @@
     "restartWindowMinutes": 10
   },
   "health": {
-    "enabled": true,
+    "enabled": false,
     "type": "http",
-    "url": "http://127.0.0.1:3000/health"
+    "url": ""
   },
   "launch": {
     "mode": "interactive"

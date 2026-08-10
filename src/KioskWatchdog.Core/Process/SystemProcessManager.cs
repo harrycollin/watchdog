@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Microsoft.Extensions.Logging;
 
 namespace KioskWatchdog.Core.Process;
@@ -18,7 +20,7 @@ public sealed class SystemProcessManager : IProcessManager
 
         var targetFullPath = Path.GetFullPath(executablePath);
         var targetFileName = Path.GetFileNameWithoutExtension(targetFullPath);
-        var results = new List<ProcessInfo>();
+        var matched = new List<(ProcessInfo Info, int Pid, int? ParentPid)>();
 
         foreach (var process in System.Diagnostics.Process.GetProcessesByName(targetFileName))
         {
@@ -31,22 +33,14 @@ public sealed class SystemProcessManager : IProcessManager
                 }
                 catch (Exception)
                 {
-                    // Access denied or process exited — skip path match, fall back to name-only match carefully.
+                    // Access denied or process exited
                 }
 
-                if (processPath is not null)
-                {
-                    if (!PathsEqual(processPath, targetFullPath))
-                        continue;
-                }
-                else
-                {
-                    // Without a reliable path, only match when the executable name is unique enough.
-                    // Prefer not matching unknown processes blindly.
+                if (processPath is null || !PathsEqual(processPath, targetFullPath))
                     continue;
-                }
 
-                results.Add(ToProcessInfo(process));
+                var parentPid = TryGetParentProcessId(process.Id);
+                matched.Add((ToProcessInfo(process), process.Id, parentPid));
             }
             catch (Exception ex)
             {
@@ -58,7 +52,24 @@ public sealed class SystemProcessManager : IProcessManager
             }
         }
 
-        return results;
+        // Electron/Chromium spawn helper processes with the same .exe path.
+        // Only treat processes whose parent is NOT also this executable as app instances.
+        var matchedIds = matched.Select(m => m.Pid).ToHashSet();
+        var roots = matched
+            .Where(m => m.ParentPid is null || !matchedIds.Contains(m.ParentPid.Value))
+            .Select(m => m.Info)
+            .ToList();
+
+        if (matched.Count > roots.Count)
+        {
+            _logger?.LogDebug(
+                "Matched {Total} processes for {Path}; {Roots} root instance(s) after filtering helpers.",
+                matched.Count,
+                executablePath,
+                roots.Count);
+        }
+
+        return roots;
     }
 
     public ProcessInfo? GetById(int processId)
@@ -85,13 +96,23 @@ public sealed class SystemProcessManager : IProcessManager
         if (!File.Exists(executablePath))
             throw new FileNotFoundException("Configured executable was not found.", executablePath);
 
+        var workDir = ResolveWorkingDirectory(executablePath, workingDirectory);
+
+        if (OperatingSystem.IsWindows() && InteractiveSessionLauncher.IsRunningInSession0())
+        {
+            _logger?.LogInformation(
+                "Watchdog is in Session 0; launching {Path} into the active interactive session.",
+                executablePath);
+            return InteractiveSessionLauncher.Start(executablePath, arguments ?? string.Empty, workDir, _logger);
+        }
+
         var startInfo = new ProcessStartInfo
         {
             FileName = executablePath,
             Arguments = arguments ?? string.Empty,
             UseShellExecute = false,
             CreateNoWindow = false,
-            WorkingDirectory = ResolveWorkingDirectory(executablePath, workingDirectory)
+            WorkingDirectory = workDir
         };
 
         var process = System.Diagnostics.Process.Start(startInfo)
@@ -206,6 +227,40 @@ public sealed class SystemProcessManager : IProcessManager
             Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
+    private static int? TryGetParentProcessId(int processId)
+    {
+        if (OperatingSystem.IsWindows())
+            return TryGetParentProcessIdWindows(processId);
+
+        return null;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int? TryGetParentProcessIdWindows(int processId)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(processId);
+            var pbi = new PROCESS_BASIC_INFORMATION();
+            var status = NtQueryInformationProcess(
+                process.Handle,
+                0, // ProcessBasicInformation
+                ref pbi,
+                Marshal.SizeOf<PROCESS_BASIC_INFORMATION>(),
+                out _);
+
+            if (status != 0)
+                return null;
+
+            var parent = (int)pbi.InheritedFromUniqueProcessId.ToInt64();
+            return parent > 0 ? parent : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static ProcessInfo ToProcessInfo(System.Diagnostics.Process process)
     {
         DateTimeOffset? startTime = null;
@@ -239,5 +294,24 @@ public sealed class SystemProcessManager : IProcessManager
             HasExited = hasExited,
             ExitCode = exitCode
         };
+    }
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(
+        IntPtr processHandle,
+        int processInformationClass,
+        ref PROCESS_BASIC_INFORMATION processInformation,
+        int processInformationLength,
+        out int returnLength);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_BASIC_INFORMATION
+    {
+        public IntPtr Reserved1;
+        public IntPtr PebBaseAddress;
+        public IntPtr Reserved2_0;
+        public IntPtr Reserved2_1;
+        public IntPtr UniqueProcessId;
+        public IntPtr InheritedFromUniqueProcessId;
     }
 }

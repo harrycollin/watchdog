@@ -8,6 +8,7 @@ using KioskWatchdog.Core.Configuration;
 using KioskWatchdog.Core.Health;
 using KioskWatchdog.Core.Ipc;
 using KioskWatchdog.Core.Status;
+using Microsoft.Win32;
 
 namespace KioskWatchdog;
 
@@ -103,6 +104,58 @@ public partial class MainWindow : Window
     private static int ParseInt(string text, int fallback)
         => int.TryParse(text, out var value) ? value : fallback;
 
+    private void BrowseExecutable_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Select application executable",
+            Filter = "Executables (*.exe)|*.exe|All files (*.*)|*.*",
+            CheckFileExists = true
+        };
+
+        if (!string.IsNullOrWhiteSpace(ExecutablePathBox.Text))
+        {
+            try
+            {
+                dialog.InitialDirectory = Path.GetDirectoryName(ExecutablePathBox.Text);
+                dialog.FileName = Path.GetFileName(ExecutablePathBox.Text);
+            }
+            catch
+            {
+                // ignore bad path
+            }
+        }
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            ExecutablePathBox.Text = dialog.FileName;
+            if (string.IsNullOrWhiteSpace(WorkingDirectoryBox.Text))
+                WorkingDirectoryBox.Text = Path.GetDirectoryName(dialog.FileName) ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(DisplayNameBox.Text) || DisplayNameBox.Text == "Kiosk Application")
+                DisplayNameBox.Text = Path.GetFileNameWithoutExtension(dialog.FileName);
+        }
+    }
+
+    private void BrowseWorkingDirectory_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Select working directory"
+        };
+
+        if (!string.IsNullOrWhiteSpace(WorkingDirectoryBox.Text) && Directory.Exists(WorkingDirectoryBox.Text))
+            dialog.InitialDirectory = WorkingDirectoryBox.Text;
+        else if (!string.IsNullOrWhiteSpace(ExecutablePathBox.Text))
+        {
+            try { dialog.InitialDirectory = Path.GetDirectoryName(ExecutablePathBox.Text); }
+            catch { /* ignore */ }
+        }
+
+        if (dialog.ShowDialog(this) == true)
+            WorkingDirectoryBox.Text = dialog.FolderName;
+    }
+
     private void RefreshStatus()
     {
         var status = StatusFilePublisher.Read() ?? new WatchdogStatus
@@ -118,7 +171,9 @@ public partial class MainWindow : Window
         UptimeText.Text = status.Uptime is TimeSpan uptime
             ? uptime.ToString(@"hh\:mm\:ss")
             : "—";
-        LastHealthText.Text = FormatAgo(status.LastHealthCheckAt);
+        LastHealthText.Text = HealthEnabledBox.IsChecked == true
+            ? FormatAgo(status.LastHealthCheckAt)
+            : "disabled";
         LastRestartText.Text = FormatAgo(status.LastRestartAt);
         RestartCountText.Text = status.RestartCount.ToString();
         LastErrorText.Text = string.IsNullOrWhiteSpace(status.LastError) ? "—" : status.LastError;
@@ -129,6 +184,7 @@ public partial class MainWindow : Window
             ApplicationStatus.Unhealthy => new SolidColorBrush(Color.FromRgb(0xB5, 0x47, 0x08)),
             ApplicationStatus.RestartLimitReached => new SolidColorBrush(Color.FromRgb(0xB4, 0x23, 0x18)),
             ApplicationStatus.Error => new SolidColorBrush(Color.FromRgb(0xB4, 0x23, 0x18)),
+            ApplicationStatus.NotConfigured => new SolidColorBrush(Color.FromRgb(0x8B, 0x94, 0x9E)),
             ApplicationStatus.Stopped => new SolidColorBrush(Color.FromRgb(0x8B, 0x94, 0x9E)),
             ApplicationStatus.Starting or ApplicationStatus.Restarting => new SolidColorBrush(Color.FromRgb(0x17, 0x6B, 0xA0)),
             _ => new SolidColorBrush(Colors.Gray)
@@ -197,6 +253,16 @@ public partial class MainWindow : Window
         try
         {
             var url = HealthUrlBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                MessageBox.Show(
+                    "Enter a localhost health URL first (e.g. http://127.0.0.1:3000/health).",
+                    "Health check",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             var checker = new HttpHealthChecker(http);
             var result = await checker.CheckAsync(url).ConfigureAwait(true);

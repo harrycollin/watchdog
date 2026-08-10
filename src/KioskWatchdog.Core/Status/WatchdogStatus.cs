@@ -3,6 +3,7 @@ namespace KioskWatchdog.Core.Status;
 public enum ApplicationStatus
 {
     Unknown,
+    NotConfigured,
     Stopped,
     Starting,
     Running,
@@ -27,7 +28,10 @@ public sealed class WatchdogStatus
     public DateTimeOffset UpdatedAt { get; set; }
 
     public TimeSpan? Uptime =>
-        ProcessStartTime is null || Status is ApplicationStatus.Stopped or ApplicationStatus.Unknown
+        ProcessStartTime is null
+        || Status is ApplicationStatus.Stopped
+            or ApplicationStatus.Unknown
+            or ApplicationStatus.NotConfigured
             ? null
             : UpdatedAt - ProcessStartTime.Value;
 

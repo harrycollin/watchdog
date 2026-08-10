@@ -65,11 +65,15 @@ public sealed class RestartConfig
 
 public sealed class HealthConfig
 {
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; } = false;
 
     public string Type { get; set; } = "http";
 
-    public string Url { get; set; } = "http://127.0.0.1:3000/health";
+    /// <summary>
+    /// Optional localhost health URL, e.g. http://127.0.0.1:3000/health.
+    /// Only used when <see cref="Enabled"/> is true.
+    /// </summary>
+    public string Url { get; set; } = string.Empty;
 }
 
 public sealed class LaunchConfig

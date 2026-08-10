@@ -4,6 +4,7 @@
         Title="Kiosk Watchdog"
         Height="720" Width="920"
         MinHeight="600" MinWidth="800"
+        Icon="pack://application:,,,/Assets/app.ico"
         Background="{StaticResource BgBrush}"
         FontFamily="Segoe UI"
         FontSize="14">
@@ -96,21 +97,35 @@
             <TextBlock Text="Configuration" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
 
             <TextBlock Text="Executable path" Foreground="{StaticResource MutedBrush}"/>
-            <TextBox x:Name="ExecutablePathBox" Margin="0,4,0,12"/>
+            <Grid Margin="0,4,0,12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBox x:Name="ExecutablePathBox" Grid.Column="0"/>
+              <Button Grid.Column="1" Content="Browse…" Width="80" Margin="8,0,0,0" Click="BrowseExecutable_Click"/>
+            </Grid>
 
             <TextBlock Text="Arguments" Foreground="{StaticResource MutedBrush}"/>
             <TextBox x:Name="ArgumentsBox" Margin="0,4,0,12"/>
 
             <TextBlock Text="Working directory" Foreground="{StaticResource MutedBrush}"/>
-            <TextBox x:Name="WorkingDirectoryBox" Margin="0,4,0,12"/>
+            <Grid Margin="0,4,0,12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBox x:Name="WorkingDirectoryBox" Grid.Column="0"/>
+              <Button Grid.Column="1" Content="Browse…" Width="80" Margin="8,0,0,0" Click="BrowseWorkingDirectory_Click"/>
+            </Grid>
 
             <TextBlock Text="Display name" Foreground="{StaticResource MutedBrush}"/>
             <TextBox x:Name="DisplayNameBox" Margin="0,4,0,12"/>
 
-            <TextBlock Text="Health URL" Foreground="{StaticResource MutedBrush}"/>
+            <CheckBox x:Name="HealthEnabledBox" Content="Enable HTTP health checks" Margin="0,0,0,8"/>
+            <TextBlock Text="Health URL (localhost only, e.g. http://127.0.0.1:3000/health)"
+                       Foreground="{StaticResource MutedBrush}"/>
             <TextBox x:Name="HealthUrlBox" Margin="0,4,0,12"/>
-
-            <CheckBox x:Name="HealthEnabledBox" Content="Health checks enabled" Margin="0,0,0,12"/>
 
             <Grid>
               <Grid.ColumnDefinitions>

@@ -11,7 +11,7 @@
   #define MyAppName "Kiosk Watchdog"
 #endif
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.1.0"
 #endif
 #ifndef MyAppPublisher
   #define MyAppPublisher "KioskWatchdog"
@@ -44,6 +44,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.22000
+SetupIconFile=..\src\KioskWatchdog.UI\Assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 VersionInfoVersion={#MyAppVersion}
@@ -154,18 +155,12 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var
-  ConfigPath: string;
-  ExamplePath: string;
 begin
   if CurStep = ssPostInstall then
   begin
-    ConfigPath := ExpandConstant('{commonappdata}\KioskWatchdog\config.json');
-    ExamplePath := ExpandConstant('{app}\config.example.json');
-    { Never overwrite existing config on upgrade }
-    if (not FileExists(ConfigPath)) and FileExists(ExamplePath) then
-      FileCopy(ExamplePath, ConfigPath, False);
-
+    { Do not seed ProgramData\config.json with sample values — that caused
+      restart loops against a non-existent demo executable after install.
+      The UI creates config.json when the user saves real settings. }
     RegisterOrUpdateService;
   end;
 end;

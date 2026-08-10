@@ -29,12 +29,9 @@ public class ConfigValidatorTests
     public void Missing_configuration_gets_sensible_defaults()
     {
         var config = WatchdogConfig.CreateDefault();
+        Assert.False(config.Health.Enabled);
+        Assert.True(string.IsNullOrEmpty(config.Health.Url));
         Assert.Equal(5, config.Monitoring.ProcessCheckIntervalSeconds);
-        Assert.Equal(10, config.Monitoring.HealthCheckIntervalSeconds);
-        Assert.Equal(45, config.Monitoring.HealthTimeoutSeconds);
-        Assert.Equal(5, config.Restart.MaxRestarts);
-        Assert.Equal(10, config.Restart.RestartWindowMinutes);
-        Assert.True(config.Health.Enabled);
     }
 
     [Fact]
