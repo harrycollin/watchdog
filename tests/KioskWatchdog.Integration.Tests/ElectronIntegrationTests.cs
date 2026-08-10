@@ -65,7 +65,7 @@ public class ElectronIntegrationTests
         Assert.True(electron is not null && main is not null,
             "Electron fixture is not installed. CI should run npm install in fixtures/electron-health-app.");
 
-        var port = 3921;
+        var port = FreePort();
         var workDir = Path.GetDirectoryName(main)!;
 
         await using var harness = EngineHarness.Create(
@@ -113,4 +113,13 @@ public class ElectronIntegrationTests
 
     private static void RequireWindows()
         => Assert.True(OperatingSystem.IsWindows(), "Electron integration tests require Windows.");
+
+    private static int FreePort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
 }
