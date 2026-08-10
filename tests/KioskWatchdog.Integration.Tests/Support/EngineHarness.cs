@@ -7,7 +7,7 @@ using KioskWatchdog.Core.Restart;
 using KioskWatchdog.Core.Status;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace KioskWatchdog.Integration.Tests;
+namespace KioskWatchdog.Integration.Tests.Support;
 
 internal sealed class EngineHarness : IAsyncDisposable
 {
