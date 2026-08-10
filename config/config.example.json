@@ -1,29 +1,135 @@
 {
-  "application": {
-    "executablePath": "",
-    "arguments": "",
-    "workingDirectory": "",
-    "displayName": "My Kiosk"
+  "notifications": {
+    "webhook": {
+      "enabled": false,
+      "url": "",
+      "timeoutSeconds": 10,
+      "events": {
+        "restartLimitReached": true,
+        "error": true,
+        "restart": false,
+        "unhealthy": false,
+        "recovered": false
+      },
+      "statusReport": {
+        "enabled": false,
+        "intervalMinutes": 60
+      }
+    }
   },
-  "monitoring": {
-    "processCheckIntervalSeconds": 5,
-    "healthCheckIntervalSeconds": 10,
-    "healthTimeoutSeconds": 45,
-    "gracefulTerminationTimeoutSeconds": 10
-  },
-  "restart": {
-    "restartOnExit": true,
-    "restartOnUnhealthy": true,
-    "restartDelaySeconds": 5,
-    "maxRestarts": 5,
-    "restartWindowMinutes": 10
-  },
-  "health": {
-    "enabled": false,
-    "type": "http",
-    "url": ""
-  },
-  "launch": {
-    "mode": "interactive"
-  }
+  "applications": [
+    {
+      "id": "kiosk-main",
+      "enabled": true,
+      "kind": "process",
+      "application": {
+        "executablePath": "",
+        "arguments": "",
+        "workingDirectory": "",
+        "displayName": "My Kiosk"
+      },
+      "http": {
+        "startCommand": "",
+        "stopCommand": "",
+        "workingDirectory": ""
+      },
+      "monitoring": {
+        "processCheckIntervalSeconds": 5,
+        "healthCheckIntervalSeconds": 10,
+        "healthTimeoutSeconds": 45,
+        "gracefulTerminationTimeoutSeconds": 10
+      },
+      "restart": {
+        "restartOnExit": true,
+        "restartOnUnhealthy": true,
+        "restartDelaySeconds": 5,
+        "maxRestarts": 5,
+        "restartWindowMinutes": 10
+      },
+      "health": {
+        "enabled": false,
+        "type": "http",
+        "url": "",
+        "expectedStatusCode": 200
+      },
+      "launch": {
+        "mode": "interactive"
+      }
+    },
+    {
+      "id": "local-site",
+      "enabled": false,
+      "kind": "http",
+      "application": {
+        "executablePath": "",
+        "arguments": "",
+        "workingDirectory": "",
+        "displayName": "Local website"
+      },
+      "http": {
+        "startCommand": "npm start",
+        "stopCommand": "",
+        "workingDirectory": "C:\\Sites\\MyApp"
+      },
+      "monitoring": {
+        "processCheckIntervalSeconds": 5,
+        "healthCheckIntervalSeconds": 5,
+        "healthTimeoutSeconds": 30,
+        "gracefulTerminationTimeoutSeconds": 10
+      },
+      "restart": {
+        "restartOnExit": true,
+        "restartOnUnhealthy": true,
+        "restartDelaySeconds": 5,
+        "maxRestarts": 5,
+        "restartWindowMinutes": 10
+      },
+      "health": {
+        "enabled": true,
+        "type": "http",
+        "url": "http://127.0.0.1:3000/health",
+        "expectedStatusCode": 200
+      },
+      "launch": {
+        "mode": "interactive"
+      }
+    },
+    {
+      "id": "tcp-api",
+      "enabled": false,
+      "kind": "tcp",
+      "application": {
+        "displayName": "Local TCP API"
+      },
+      "tcp": {
+        "host": "127.0.0.1",
+        "port": 5000,
+        "startCommand": "",
+        "stopCommand": "",
+        "workingDirectory": ""
+      },
+      "monitoring": {
+        "processCheckIntervalSeconds": 5,
+        "healthCheckIntervalSeconds": 5,
+        "healthTimeoutSeconds": 30,
+        "gracefulTerminationTimeoutSeconds": 10
+      },
+      "restart": {
+        "restartOnExit": true,
+        "restartOnUnhealthy": true,
+        "restartDelaySeconds": 5,
+        "maxRestarts": 5,
+        "restartWindowMinutes": 10
+      },
+      "health": {
+        "enabled": false,
+        "type": "http",
+        "url": "",
+        "expectedStatusCode": 200
+      },
+      "launch": {
+        "mode": "interactive"
+      }
+    }
+  ]
 }

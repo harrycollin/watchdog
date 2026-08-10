@@ -8,6 +8,8 @@ internal sealed class FakeProcessManager : IProcessManager
     private int _nextPid = 1000;
 
     public int StartCallCount { get; private set; }
+    public int ShellStartCallCount { get; private set; }
+    public string? LastShellCommand { get; private set; }
     public int KillCallCount { get; private set; }
     public bool FailNextStart { get; set; }
     public TimeSpan GracefulExitDelay { get; set; } = TimeSpan.Zero;
@@ -42,6 +44,30 @@ internal sealed class FakeProcessManager : IProcessManager
             WorkingDirectory = workingDirectory,
             StartTime = DateTimeOffset.UtcNow,
             ProcessName = Path.GetFileNameWithoutExtension(executablePath)
+        };
+        _processes[pid] = process;
+        return ToInfo(process);
+    }
+
+    public ProcessInfo StartShellCommand(string command, string workingDirectory)
+    {
+        ShellStartCallCount++;
+        LastShellCommand = command;
+        if (FailNextStart)
+        {
+            FailNextStart = false;
+            throw new InvalidOperationException("Simulated start failure.");
+        }
+
+        var pid = _nextPid++;
+        var process = new TrackedProcess
+        {
+            Id = pid,
+            ExecutablePath = "cmd.exe",
+            Arguments = "/c " + command,
+            WorkingDirectory = workingDirectory,
+            StartTime = DateTimeOffset.UtcNow,
+            ProcessName = "cmd"
         };
         _processes[pid] = process;
         return ToInfo(process);

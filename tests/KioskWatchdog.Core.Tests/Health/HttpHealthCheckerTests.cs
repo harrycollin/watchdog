@@ -33,6 +33,39 @@ public class HttpHealthCheckerTests
         Assert.Equal(503, result.HttpStatusCode);
     }
 
+    [Fact]
+    public async Task Http_expected_status_code_is_honored()
+    {
+        using var server = new LocalHealthServer(HttpStatusCode.NoContent);
+        using var client = new HttpClient();
+        var checker = new HttpHealthChecker(client, new FakeClock());
+
+        var ok = await checker.CheckHttpAsync(server.Url, expectedStatusCode: 204);
+        var bad = await checker.CheckHttpAsync(server.Url, expectedStatusCode: 200);
+
+        Assert.Equal(HealthStatus.Healthy, ok.Status);
+        Assert.Equal(HealthStatus.Unhealthy, bad.Status);
+    }
+
+    [Fact]
+    public async Task Tcp_open_port_is_healthy()
+    {
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        try
+        {
+            using var client = new HttpClient();
+            var checker = new HttpHealthChecker(client, new FakeClock());
+            var result = await checker.CheckTcpAsync("127.0.0.1", port);
+            Assert.Equal(HealthStatus.Healthy, result.Status);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     private sealed class LocalHealthServer : IDisposable
     {
         private readonly HttpListener _listener;

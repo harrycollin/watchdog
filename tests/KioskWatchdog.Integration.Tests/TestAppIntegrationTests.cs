@@ -21,12 +21,12 @@ public class TestAppIntegrationTests
 
         await harness.StartEngineAsync();
         await WaitHelper.UntilAsync(
-            () => harness.Status.Current.Status == ApplicationStatus.Running
-                  && harness.Status.Current.ProcessId is not null,
+            () => harness.PrimaryStatus().Status == ApplicationStatus.Running
+                  && harness.PrimaryStatus().ProcessId is not null,
             TimeSpan.FromSeconds(20),
             "TestApp should be running.");
 
-        Assert.Equal(ApplicationStatus.Running, harness.Status.Current.Status);
+        Assert.Equal(ApplicationStatus.Running, harness.PrimaryStatus().Status);
     }
 
     [Fact]
@@ -40,20 +40,21 @@ public class TestAppIntegrationTests
             "--crash",
             configure: c =>
             {
-                c.Restart.RestartDelaySeconds = 1;
-                c.Restart.MaxRestarts = 5;
+                var a = c.Primary();
+                a.Restart.RestartDelaySeconds = 1;
+                a.Restart.MaxRestarts = 5;
             });
 
         await harness.StartEngineAsync();
         await WaitHelper.UntilAsync(
-            () => harness.Status.Current.RestartCount >= 2
-                  || harness.Status.Current.Status == ApplicationStatus.RestartLimitReached,
+            () => harness.PrimaryStatus().RestartCount >= 2
+                  || harness.PrimaryStatus().Status == ApplicationStatus.RestartLimitReached,
             TimeSpan.FromSeconds(30),
             "Crashing TestApp should cause restarts.");
 
         Assert.True(
-            harness.Status.Current.RestartCount >= 2
-            || harness.Status.Current.Status == ApplicationStatus.RestartLimitReached);
+            harness.PrimaryStatus().RestartCount >= 2
+            || harness.PrimaryStatus().Status == ApplicationStatus.RestartLimitReached);
     }
 
     [Fact]
@@ -66,19 +67,19 @@ public class TestAppIntegrationTests
         await using var harness = EngineHarness.Create(
             app,
             $"--exit-after 2 --port {port}",
-            configure: c => c.Restart.RestartDelaySeconds = 1);
+            configure: c => c.Primary().Restart.RestartDelaySeconds = 1);
 
         await harness.StartEngineAsync();
         await WaitHelper.UntilAsync(
-            () => harness.Status.Current.ProcessId is not null,
+            () => harness.PrimaryStatus().ProcessId is not null,
             TimeSpan.FromSeconds(15));
 
-        var firstPid = harness.Status.Current.ProcessId;
+        var firstPid = harness.PrimaryStatus().ProcessId;
 
         await WaitHelper.UntilAsync(
-            () => harness.Status.Current.ProcessId is int pid
+            () => harness.PrimaryStatus().ProcessId is int pid
                   && pid != firstPid
-                  && harness.Status.Current.Status == ApplicationStatus.Running,
+                  && harness.PrimaryStatus().Status == ApplicationStatus.Running,
             TimeSpan.FromSeconds(30),
             "TestApp should restart after --exit-after.");
     }
@@ -95,17 +96,18 @@ public class TestAppIntegrationTests
             $"--health-fail --port {port}",
             configure: c =>
             {
-                c.Health.Enabled = true;
-                c.Health.Url = $"http://127.0.0.1:{port}/health";
-                c.Monitoring.HealthCheckIntervalSeconds = 1;
-                c.Monitoring.HealthTimeoutSeconds = 2;
-                c.Restart.RestartDelaySeconds = 1;
+                var a = c.Primary();
+                a.Health.Enabled = true;
+                a.Health.Url = $"http://127.0.0.1:{port}/health";
+                a.Monitoring.HealthCheckIntervalSeconds = 1;
+                a.Monitoring.HealthTimeoutSeconds = 2;
+                a.Restart.RestartDelaySeconds = 1;
             });
 
         await harness.StartEngineAsync();
         await WaitHelper.UntilAsync(
-            () => harness.Status.Current.RestartCount >= 1
-                  || harness.Status.Current.Status is ApplicationStatus.Unhealthy
+            () => harness.PrimaryStatus().RestartCount >= 1
+                  || harness.PrimaryStatus().Status is ApplicationStatus.Unhealthy
                       or ApplicationStatus.Restarting
                       or ApplicationStatus.RestartLimitReached,
             TimeSpan.FromSeconds(40),
@@ -121,14 +123,43 @@ public class TestAppIntegrationTests
         await using var harness = EngineHarness.Create(
             missing,
             "",
-            configure: c => c.Restart.MaxRestarts = 2);
+            configure: c => c.Primary().Restart.MaxRestarts = 2);
 
         await harness.StartEngineAsync();
         await Task.Delay(TimeSpan.FromSeconds(4));
 
-        Assert.Equal(ApplicationStatus.NotConfigured, harness.Status.Current.Status);
-        Assert.Equal(0, harness.Status.Current.RestartCount);
-        Assert.False(harness.Status.Current.RestartLimitReached);
+        Assert.Equal(ApplicationStatus.NotConfigured, harness.PrimaryStatus().Status);
+        Assert.Equal(0, harness.PrimaryStatus().RestartCount);
+        Assert.False(harness.PrimaryStatus().RestartLimitReached);
+    }
+
+    [Fact]
+    public async Task Two_TestApp_copies_are_monitored_independently()
+    {
+        RequireWindows();
+        var portA = FreePort();
+        var portB = FreePort();
+        var exeA = TestPaths.CopyTestAppAs("TestAppA.exe");
+        var exeB = TestPaths.CopyTestAppAs("TestAppB.exe");
+
+        await using var harness = EngineHarness.CreateMulti(
+            exeA,
+            $"--normal --port {portA}",
+            exeB,
+            $"--normal --port {portB}");
+
+        await harness.StartEngineAsync();
+        await WaitHelper.UntilAsync(
+            () => harness.Status.Get("app-a")?.Status == ApplicationStatus.Running
+                  && harness.Status.Get("app-b")?.Status == ApplicationStatus.Running,
+            TimeSpan.FromSeconds(25),
+            "Both TestApp copies should be running.");
+
+        var pidA = harness.Status.Get("app-a")!.ProcessId;
+        var pidB = harness.Status.Get("app-b")!.ProcessId;
+        Assert.NotNull(pidA);
+        Assert.NotNull(pidB);
+        Assert.NotEqual(pidA, pidB);
     }
 
     private static void RequireWindows()

@@ -20,5 +20,17 @@ public sealed class HealthCheckResult
 
 public interface IHealthChecker
 {
-    Task<HealthCheckResult> CheckAsync(string url, CancellationToken cancellationToken = default);
+    Task<HealthCheckResult> CheckHttpAsync(
+        string url,
+        int expectedStatusCode = 200,
+        CancellationToken cancellationToken = default);
+
+    Task<HealthCheckResult> CheckTcpAsync(
+        string host,
+        int port,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Back-compat helper (expects HTTP 200).</summary>
+    Task<HealthCheckResult> CheckAsync(string url, CancellationToken cancellationToken = default)
+        => CheckHttpAsync(url, 200, cancellationToken);
 }

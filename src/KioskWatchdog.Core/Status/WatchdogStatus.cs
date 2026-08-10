@@ -15,6 +15,7 @@ public enum ApplicationStatus
 
 public sealed class WatchdogStatus
 {
+    public string Id { get; set; } = "default";
     public string ApplicationName { get; set; } = "Kiosk Application";
     public ApplicationStatus Status { get; set; } = ApplicationStatus.Unknown;
     public int? ProcessId { get; set; }
@@ -37,6 +38,7 @@ public sealed class WatchdogStatus
 
     public WatchdogStatus Clone() => new()
     {
+        Id = Id,
         ApplicationName = ApplicationName,
         Status = Status,
         ProcessId = ProcessId,
@@ -51,9 +53,19 @@ public sealed class WatchdogStatus
     };
 }
 
+/// <summary>Multi-app status document written to status.json.</summary>
+public sealed class WatchdogStatusSnapshot
+{
+    public DateTimeOffset UpdatedAt { get; set; }
+    public List<WatchdogStatus> Applications { get; set; } = new();
+}
+
 public interface IWatchdogStatusStore
 {
-    WatchdogStatus Current { get; }
     event EventHandler? Changed;
-    void Update(Action<WatchdogStatus> mutate);
+    IReadOnlyList<WatchdogStatus> All { get; }
+    WatchdogStatus? Get(string applicationId);
+    void Upsert(string applicationId, Action<WatchdogStatus> mutate);
+    void RemoveMissing(IEnumerable<string> activeIds);
+    WatchdogStatusSnapshot CreateSnapshot();
 }

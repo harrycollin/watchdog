@@ -11,6 +11,7 @@ public sealed class StatusFilePublisher : IDisposable
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter() }
     };
 
@@ -43,7 +44,8 @@ public sealed class StatusFilePublisher : IDisposable
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
 
-            var json = JsonSerializer.Serialize(_statusStore.Current, Options);
+            var snapshot = _statusStore.CreateSnapshot();
+            var json = JsonSerializer.Serialize(snapshot, Options);
             var temp = _statusPath + ".tmp";
 
             lock (_gate)
@@ -61,7 +63,7 @@ public sealed class StatusFilePublisher : IDisposable
         }
     }
 
-    public static WatchdogStatus? Read(string? statusPath = null)
+    public static WatchdogStatusSnapshot? ReadSnapshot(string? statusPath = null)
     {
         var path = statusPath ?? Path.Combine(
             Configuration.WatchdogConfig.DefaultConfigDirectory,
@@ -73,12 +75,26 @@ public sealed class StatusFilePublisher : IDisposable
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<WatchdogStatus>(json, Options);
+            return JsonSerializer.Deserialize<WatchdogStatusSnapshot>(json, Options);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>Convenience for single-app / selected-app UI.</summary>
+    public static WatchdogStatus? Read(string? statusPath = null, string? applicationId = null)
+    {
+        var snapshot = ReadSnapshot(statusPath);
+        if (snapshot is null || snapshot.Applications.Count == 0)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(applicationId))
+            return snapshot.Applications[0];
+
+        return snapshot.Applications.FirstOrDefault(a =>
+            string.Equals(a.Id, applicationId, StringComparison.OrdinalIgnoreCase));
     }
 
     public void Dispose()
@@ -99,6 +115,7 @@ public enum WatchdogCommandType
 public sealed class WatchdogCommand
 {
     public WatchdogCommandType Type { get; set; }
+    public string? ApplicationId { get; set; }
     public DateTimeOffset RequestedAt { get; set; } = DateTimeOffset.UtcNow;
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 }
@@ -108,6 +125,7 @@ public sealed class CommandFileQueue
     private static readonly JsonSerializerOptions Options = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter() }
     };
 
@@ -123,13 +141,17 @@ public sealed class CommandFileQueue
 
     public string CommandPath => _commandPath;
 
-    public void Enqueue(WatchdogCommandType type)
+    public void Enqueue(WatchdogCommandType type, string? applicationId = null)
     {
         var directory = Path.GetDirectoryName(_commandPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        var command = new WatchdogCommand { Type = type };
+        var command = new WatchdogCommand
+        {
+            Type = type,
+            ApplicationId = applicationId
+        };
         var json = JsonSerializer.Serialize(command, Options);
         lock (_gate)
         {

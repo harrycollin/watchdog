@@ -17,7 +17,7 @@ public sealed class JsonConfigStore : IConfigStore
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
@@ -37,6 +37,7 @@ public sealed class JsonConfigStore : IConfigStore
         {
             _logger?.LogInformation("Configuration file not found at {Path}; using defaults.", ConfigPath);
             var defaults = WatchdogConfig.CreateDefault();
+            defaults.Normalize();
             return defaults;
         }
 
@@ -45,20 +46,27 @@ public sealed class JsonConfigStore : IConfigStore
             var json = File.ReadAllText(ConfigPath);
             var config = JsonSerializer.Deserialize<WatchdogConfig>(json, SerializerOptions)
                          ?? WatchdogConfig.CreateDefault();
+            config.Normalize();
 
-            _logger?.LogInformation("Configuration loaded from {Path}.", ConfigPath);
+            _logger?.LogInformation(
+                "Configuration loaded from {Path} ({Count} application(s)).",
+                ConfigPath,
+                config.Applications.Count);
             return config;
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to load configuration from {Path}; using defaults.", ConfigPath);
-            return WatchdogConfig.CreateDefault();
+            var defaults = WatchdogConfig.CreateDefault();
+            defaults.Normalize();
+            return defaults;
         }
     }
 
     public void Save(WatchdogConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
+        config.Normalize();
 
         var validation = ConfigValidator.Validate(config);
         if (!validation.IsValid)
@@ -69,22 +77,16 @@ public sealed class JsonConfigStore : IConfigStore
 
         var directory = Path.GetDirectoryName(ConfigPath);
         if (!string.IsNullOrEmpty(directory))
-        {
             Directory.CreateDirectory(directory);
-        }
 
         var json = JsonSerializer.Serialize(config, SerializerOptions);
         var tempPath = ConfigPath + ".tmp";
         File.WriteAllText(tempPath, json);
 
         if (File.Exists(ConfigPath))
-        {
             File.Replace(tempPath, ConfigPath, null);
-        }
         else
-        {
             File.Move(tempPath, ConfigPath);
-        }
 
         _logger?.LogInformation("Configuration saved to {Path}.", ConfigPath);
     }

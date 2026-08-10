@@ -33,7 +33,11 @@ public sealed class CommandListenerService : BackgroundService
                 var command = _queue.TryDequeue();
                 if (command is not null)
                 {
-                    _logger.LogInformation("Received command {Type} ({Id}).", command.Type, command.Id);
+                    _logger.LogInformation(
+                        "Received command {Type} for app '{AppId}' ({Id}).",
+                        command.Type,
+                        command.ApplicationId ?? "(default)",
+                        command.Id);
                     await DispatchAsync(command, stoppingToken).ConfigureAwait(false);
                 }
             }
@@ -58,16 +62,16 @@ public sealed class CommandListenerService : BackgroundService
         switch (command.Type)
         {
             case WatchdogCommandType.Start:
-                await _engine.StartApplicationAsync(cancellationToken).ConfigureAwait(false);
+                await _engine.StartApplicationAsync(command.ApplicationId, cancellationToken).ConfigureAwait(false);
                 break;
             case WatchdogCommandType.Stop:
-                await _engine.StopApplicationAsync(cancellationToken).ConfigureAwait(false);
+                await _engine.StopApplicationAsync(command.ApplicationId, cancellationToken).ConfigureAwait(false);
                 break;
             case WatchdogCommandType.Restart:
-                await _engine.RestartApplicationAsync(cancellationToken).ConfigureAwait(false);
+                await _engine.RestartApplicationAsync(command.ApplicationId, cancellationToken).ConfigureAwait(false);
                 break;
             case WatchdogCommandType.ResetRestartCounter:
-                _engine.ResetRestartCounter();
+                _engine.ResetRestartCounter(command.ApplicationId);
                 break;
             case WatchdogCommandType.ReloadConfig:
                 _engine.ReloadConfiguration(_configStore.Load());

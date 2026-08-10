@@ -134,6 +134,65 @@ public sealed class SystemProcessManager : IProcessManager
         }
     }
 
+    public ProcessInfo StartShellCommand(string command, string workingDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(command);
+
+        var workDir = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Environment.CurrentDirectory
+            : workingDirectory;
+
+        if (!Directory.Exists(workDir))
+            throw new DirectoryNotFoundException($"Working directory was not found: {workDir}");
+
+        string fileName;
+        string arguments;
+        if (OperatingSystem.IsWindows())
+        {
+            fileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+            // /c runs the command then exits when the command exits (keeps tree rooted at cmd while npm/node run).
+            arguments = "/c " + command;
+        }
+        else
+        {
+            fileName = "/bin/sh";
+            arguments = "-c " + command;
+        }
+
+        if (OperatingSystem.IsWindows() && InteractiveSessionLauncher.IsRunningInSession0())
+        {
+            _logger?.LogInformation(
+                "Watchdog is in Session 0; launching shell command into the active interactive session: {Command}",
+                command);
+            return InteractiveSessionLauncher.Start(fileName, arguments, workDir, _logger);
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            UseShellExecute = false,
+            CreateNoWindow = false,
+            WorkingDirectory = workDir
+        };
+
+        var process = System.Diagnostics.Process.Start(startInfo)
+                      ?? throw new InvalidOperationException($"Failed to start shell command: {command}");
+
+        try
+        {
+            _logger?.LogInformation(
+                "Started shell command (PID {Pid}): {Command}",
+                process.Id,
+                command);
+            return ToProcessInfo(process);
+        }
+        finally
+        {
+            process.Dispose();
+        }
+    }
+
     public bool TryCloseMainWindow(int processId)
     {
         try

@@ -3,8 +3,8 @@ using KioskWatchdog.Core.Configuration;
 using KioskWatchdog.Core.Engine;
 using KioskWatchdog.Core.Health;
 using KioskWatchdog.Core.Ipc;
+using KioskWatchdog.Core.Notifications;
 using KioskWatchdog.Core.Process;
-using KioskWatchdog.Core.Restart;
 using KioskWatchdog.Core.Status;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,8 +27,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWatchdogStatusStore, WatchdogStatusStore>();
         services.AddSingleton<IProcessManager, SystemProcessManager>();
         services.AddSingleton<ProcessTerminator>();
-        services.AddSingleton<HealthMonitor>();
-        services.AddSingleton<RestartManager>();
         services.AddSingleton<CommandFileQueue>();
         services.AddSingleton<StatusFilePublisher>();
 
@@ -37,10 +35,18 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(5);
         });
 
+        // Per-request timeout is applied in HttpWebhookClient; keep HttpClient timeout high.
+        services.AddHttpClient<IWebhookClient, HttpWebhookClient>(client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(2);
+        });
+
         services.AddSingleton(sp =>
         {
             var store = sp.GetRequiredService<IConfigStore>();
-            return store.Load();
+            var config = store.Load();
+            config.Normalize();
+            return config;
         });
 
         services.AddSingleton<WatchdogEngine>();
@@ -48,6 +54,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<CommandListenerService>();
         services.AddHostedService<ConfigReloadService>();
         services.AddHostedService<StatusPublisherHostedService>();
+        services.AddHostedService<WebhookNotificationService>();
 
         return services;
     }

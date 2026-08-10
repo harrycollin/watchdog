@@ -74,17 +74,18 @@ public class ElectronIntegrationTests
             workDir,
             c =>
             {
-                c.Health.Enabled = true;
-                c.Health.Url = $"http://127.0.0.1:{port}/health";
-                c.Monitoring.HealthCheckIntervalSeconds = 1;
-                c.Monitoring.HealthTimeoutSeconds = 10;
-                c.Application.DisplayName = "Electron Fixture";
+                var a = c.Primary();
+                a.Health.Enabled = true;
+                a.Health.Url = $"http://127.0.0.1:{port}/health";
+                a.Monitoring.HealthCheckIntervalSeconds = 1;
+                a.Monitoring.HealthTimeoutSeconds = 10;
+                a.Application.DisplayName = "Electron Fixture";
             });
 
         await harness.StartEngineAsync();
         await WaitHelper.UntilAsync(
-            () => harness.Status.Current.Status == ApplicationStatus.Running
-                  && harness.Status.Current.ProcessId is not null,
+            () => harness.PrimaryStatus().Status == ApplicationStatus.Running
+                  && harness.PrimaryStatus().ProcessId is not null,
             TimeSpan.FromSeconds(30),
             "Electron fixture should be running under the watchdog.");
 
@@ -106,7 +107,7 @@ public class ElectronIntegrationTests
             "Electron /health should return HTTP 200.");
 
         await WaitHelper.UntilAsync(
-            () => harness.Status.Current.LastHealthCheckSucceeded == true,
+            () => harness.PrimaryStatus().LastHealthCheckSucceeded == true,
             TimeSpan.FromSeconds(20),
             "Watchdog should observe a successful health check.");
     }

@@ -18,6 +18,21 @@ internal sealed class FakeHealthChecker : IHealthChecker
     public void SetDefault(HealthCheckResult result) => _defaultResult = result;
 
     public Task<HealthCheckResult> CheckAsync(string url, CancellationToken cancellationToken = default)
+        => CheckHttpAsync(url, 200, cancellationToken);
+
+    public Task<HealthCheckResult> CheckHttpAsync(
+        string url,
+        int expectedStatusCode = 200,
+        CancellationToken cancellationToken = default)
+        => NextResult();
+
+    public Task<HealthCheckResult> CheckTcpAsync(
+        string host,
+        int port,
+        CancellationToken cancellationToken = default)
+        => NextResult();
+
+    private Task<HealthCheckResult> NextResult()
     {
         CallCount++;
         if (_results.Count > 0)

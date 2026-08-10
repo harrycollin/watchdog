@@ -1,14 +1,16 @@
-using System.Diagnostics;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
-using System.Windows.Media;
 using System.Windows.Threading;
 using KioskWatchdog.Core.Configuration;
 using KioskWatchdog.Core.Health;
 using KioskWatchdog.Core.Ipc;
 using KioskWatchdog.Core.Status;
 using Microsoft.Win32;
+using MessageBox = System.Windows.MessageBox;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
 namespace KioskWatchdog;
 
@@ -17,13 +19,21 @@ public partial class MainWindow : Window
     private readonly JsonConfigStore _configStore = new();
     private readonly CommandFileQueue _commandQueue = new();
     private readonly DispatcherTimer _refreshTimer;
-    private WatchdogConfig _config;
+    private readonly ObservableCollection<AppListItem> _apps = new();
+    private readonly TrayIconService _tray;
+    private bool _suppressSelectionEvents;
+    private bool _allowClose;
+    private AppListItem? _selected;
 
     public MainWindow()
     {
         InitializeComponent();
-        _config = _configStore.Load();
-        LoadConfigIntoForm(_config);
+        AppList.ItemsSource = _apps;
+
+        _tray = new TrayIconService(ShowFromTray, ExitFromTray);
+
+        var config = _configStore.Load();
+        LoadAppsFromConfig(config);
 
         _refreshTimer = new DispatcherTimer
         {
@@ -34,75 +44,340 @@ public partial class MainWindow : Window
         RefreshStatus();
     }
 
-    private void LoadConfigIntoForm(WatchdogConfig config)
+    private void LoadAppsFromConfig(WatchdogConfig config)
     {
-        ExecutablePathBox.Text = config.Application.ExecutablePath;
-        ArgumentsBox.Text = config.Application.Arguments;
-        WorkingDirectoryBox.Text = config.Application.WorkingDirectory;
-        DisplayNameBox.Text = config.Application.DisplayName;
-        HealthUrlBox.Text = config.Health.Url;
-        HealthEnabledBox.IsChecked = config.Health.Enabled;
-        HealthIntervalBox.Text = config.Monitoring.HealthCheckIntervalSeconds.ToString();
-        HealthTimeoutBox.Text = config.Monitoring.HealthTimeoutSeconds.ToString();
-        ProcessIntervalBox.Text = config.Monitoring.ProcessCheckIntervalSeconds.ToString();
-        RestartDelayBox.Text = config.Restart.RestartDelaySeconds.ToString();
-        MaxRestartsBox.Text = config.Restart.MaxRestarts.ToString();
-        RestartWindowBox.Text = config.Restart.RestartWindowMinutes.ToString();
-
-        foreach (System.Windows.Controls.ComboBoxItem item in LaunchModeBox.Items)
+        _suppressSelectionEvents = true;
+        try
         {
-            if (string.Equals(item.Tag?.ToString(), config.Launch.Mode.ToString(), StringComparison.OrdinalIgnoreCase))
+            PushFormToSelected();
+            _apps.Clear();
+
+            if (config.Applications.Count == 0)
             {
-                LaunchModeBox.SelectedItem = item;
+                _apps.Add(AppListItem.CreateNew("default"));
+            }
+            else
+            {
+                foreach (var app in config.Applications)
+                    _apps.Add(AppListItem.FromConfig(app));
+            }
+
+            _selected = _apps[0];
+            AppList.SelectedItem = _selected;
+            LoadSelectedIntoForm();
+            LoadNotificationsIntoForm(config.Notifications);
+        }
+        finally
+        {
+            _suppressSelectionEvents = false;
+        }
+    }
+
+    private void LoadNotificationsIntoForm(NotificationsConfig notifications)
+    {
+        var webhook = notifications.Webhook;
+        WebhookEnabledCheck.IsChecked = webhook.Enabled;
+        WebhookUrlBox.Text = webhook.Url;
+        WebhookTimeoutBox.Text = webhook.TimeoutSeconds.ToString();
+
+        EventRestartLimitCheck.IsChecked = webhook.Events.RestartLimitReached;
+        EventErrorCheck.IsChecked = webhook.Events.Error;
+        EventRestartCheck.IsChecked = webhook.Events.Restart;
+        EventUnhealthyCheck.IsChecked = webhook.Events.Unhealthy;
+        EventRecoveredCheck.IsChecked = webhook.Events.Recovered;
+
+        StatusReportEnabledCheck.IsChecked = webhook.StatusReport.Enabled;
+        StatusReportIntervalBox.Text = webhook.StatusReport.IntervalMinutes.ToString();
+    }
+
+    private NotificationsConfig ReadNotificationsFromForm()
+        => new()
+        {
+            Webhook = new WebhookConfig
+            {
+                Enabled = WebhookEnabledCheck.IsChecked == true,
+                Url = WebhookUrlBox.Text.Trim(),
+                TimeoutSeconds = ParseInt(WebhookTimeoutBox.Text, 10),
+                Events = new WebhookEventsConfig
+                {
+                    RestartLimitReached = EventRestartLimitCheck.IsChecked == true,
+                    Error = EventErrorCheck.IsChecked == true,
+                    Restart = EventRestartCheck.IsChecked == true,
+                    Unhealthy = EventUnhealthyCheck.IsChecked == true,
+                    Recovered = EventRecoveredCheck.IsChecked == true
+                },
+                StatusReport = new StatusReportConfig
+                {
+                    Enabled = StatusReportEnabledCheck.IsChecked == true,
+                    IntervalMinutes = ParseInt(StatusReportIntervalBox.Text, 60)
+                }
+            }
+        };
+
+    private void AppList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_suppressSelectionEvents)
+            return;
+
+        PushFormToSelected();
+        _selected = AppList.SelectedItem as AppListItem;
+        LoadSelectedIntoForm();
+        RefreshStatus();
+    }
+
+    private void LoadSelectedIntoForm()
+    {
+        if (_selected is null)
+            return;
+
+        AppIdBox.Text = _selected.Id;
+        EnabledCheck.IsChecked = _selected.Enabled;
+        DisplayNameBox.Text = _selected.DisplayName;
+        ExecutableBox.Text = _selected.ExecutablePath;
+        ArgumentsBox.Text = _selected.Arguments;
+        WorkingDirBox.Text = _selected.WorkingDirectory;
+        StartCommandBox.Text = _selected.StartCommand;
+        StopCommandBox.Text = _selected.StopCommand;
+        HttpWorkingDirBox.Text = string.IsNullOrWhiteSpace(_selected.HttpWorkingDirectory)
+            ? _selected.WorkingDirectory
+            : _selected.HttpWorkingDirectory;
+        TcpHostBox.Text = string.IsNullOrWhiteSpace(_selected.TcpHost) ? "127.0.0.1" : _selected.TcpHost;
+        TcpPortBox.Text = _selected.TcpPort > 0 ? _selected.TcpPort.ToString() : "";
+        TcpStartCommandBox.Text = _selected.TcpStartCommand;
+        TcpStopCommandBox.Text = _selected.TcpStopCommand;
+        TcpWorkingDirBox.Text = _selected.TcpWorkingDirectory;
+        ServiceNameBox.Text = _selected.ServiceName;
+        ProcessIntervalBox.Text = _selected.ProcessCheckIntervalSeconds.ToString();
+        HealthIntervalBox.Text = _selected.HealthCheckIntervalSeconds.ToString();
+        HealthTimeoutBox.Text = _selected.HealthTimeoutSeconds.ToString();
+        GracefulStopBox.Text = _selected.GracefulTerminationTimeoutSeconds.ToString();
+        RestartDelayBox.Text = _selected.RestartDelaySeconds.ToString();
+        MaxRestartsBox.Text = _selected.MaxRestarts.ToString();
+        RestartWindowBox.Text = _selected.RestartWindowMinutes.ToString();
+        HealthEnabledCheck.IsChecked = _selected.HealthEnabled;
+        HealthUrlBox.Text = _selected.HealthUrl;
+        ExpectedStatusBox.Text = _selected.ExpectedStatusCode.ToString();
+
+        SelectKind(_selected.Kind);
+        SelectLaunchMode(LaunchModeBox, _selected.LaunchMode);
+        SelectLaunchMode(HttpLaunchModeBox, _selected.LaunchMode);
+        ApplyKindUi();
+    }
+
+    private static void SelectLaunchMode(System.Windows.Controls.ComboBox box, LaunchMode mode)
+    {
+        foreach (System.Windows.Controls.ComboBoxItem item in box.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), mode.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                box.SelectedItem = item;
                 break;
             }
         }
     }
 
-    private WatchdogConfig ReadConfigFromForm()
+    private void SelectKind(ApplicationKind kind)
     {
-        var modeTag = (LaunchModeBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString()
-                      ?? "Interactive";
-
-        return new WatchdogConfig
+        foreach (System.Windows.Controls.ComboBoxItem item in KindBox.Items)
         {
-            Application =
+            if (string.Equals(item.Tag?.ToString(), kind.ToString(), StringComparison.OrdinalIgnoreCase))
             {
-                ExecutablePath = ExecutablePathBox.Text.Trim(),
-                Arguments = ArgumentsBox.Text,
-                WorkingDirectory = WorkingDirectoryBox.Text.Trim(),
-                DisplayName = string.IsNullOrWhiteSpace(DisplayNameBox.Text) ? "Kiosk Application" : DisplayNameBox.Text.Trim()
-            },
-            Monitoring =
-            {
-                ProcessCheckIntervalSeconds = ParseInt(ProcessIntervalBox.Text, 5),
-                HealthCheckIntervalSeconds = ParseInt(HealthIntervalBox.Text, 10),
-                HealthTimeoutSeconds = ParseInt(HealthTimeoutBox.Text, 45),
-                GracefulTerminationTimeoutSeconds = _config.Monitoring.GracefulTerminationTimeoutSeconds
-            },
-            Restart =
-            {
-                RestartOnExit = true,
-                RestartOnUnhealthy = true,
-                RestartDelaySeconds = ParseInt(RestartDelayBox.Text, 5),
-                MaxRestarts = ParseInt(MaxRestartsBox.Text, 5),
-                RestartWindowMinutes = ParseInt(RestartWindowBox.Text, 10)
-            },
-            Health =
-            {
-                Enabled = HealthEnabledBox.IsChecked == true,
-                Type = "http",
-                Url = HealthUrlBox.Text.Trim()
-            },
-            Launch =
-            {
-                Mode = Enum.TryParse<LaunchMode>(modeTag, true, out var mode) ? mode : LaunchMode.Interactive
+                KindBox.SelectedItem = item;
+                break;
             }
+        }
+    }
+
+    private ApplicationKind SelectedKind()
+    {
+        var tag = (KindBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString() ?? "Process";
+        return Enum.TryParse<ApplicationKind>(tag, true, out var kind) ? kind : ApplicationKind.Process;
+    }
+
+    private void KindBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _suppressSelectionEvents)
+            return;
+
+        ApplyKindUi();
+    }
+
+    private void ApplyKindUi()
+    {
+        var kind = SelectedKind();
+        ProcessFieldsPanel.Visibility = kind == ApplicationKind.Process ? Visibility.Visible : Visibility.Collapsed;
+        HttpFieldsPanel.Visibility = kind == ApplicationKind.Http ? Visibility.Visible : Visibility.Collapsed;
+        TcpFieldsPanel.Visibility = kind == ApplicationKind.Tcp ? Visibility.Visible : Visibility.Collapsed;
+        ServiceFieldsPanel.Visibility = kind == ApplicationKind.WindowsService ? Visibility.Visible : Visibility.Collapsed;
+        HttpHealthHint.Visibility = kind == ApplicationKind.Http ? Visibility.Visible : Visibility.Collapsed;
+
+        var httpHealthRelevant = kind is ApplicationKind.Process or ApplicationKind.Http;
+        HealthEnabledCheck.Visibility = httpHealthRelevant ? Visibility.Visible : Visibility.Collapsed;
+        HealthUrlBox.IsEnabled = httpHealthRelevant;
+        ExpectedStatusBox.IsEnabled = httpHealthRelevant;
+
+        if (kind == ApplicationKind.Http)
+        {
+            HealthEnabledCheck.IsChecked = true;
+            HealthEnabledCheck.IsEnabled = false;
+        }
+        else
+        {
+            HealthEnabledCheck.IsEnabled = true;
+        }
+    }
+
+    private void PushFormToSelected()
+    {
+        if (_selected is null)
+            return;
+
+        _selected.Id = string.IsNullOrWhiteSpace(AppIdBox.Text) ? _selected.Id : AppIdBox.Text.Trim();
+        _selected.Enabled = EnabledCheck.IsChecked == true;
+        _selected.Kind = SelectedKind();
+        _selected.DisplayName = string.IsNullOrWhiteSpace(DisplayNameBox.Text)
+            ? "Kiosk Application"
+            : DisplayNameBox.Text.Trim();
+        _selected.ExecutablePath = ExecutableBox.Text.Trim();
+        _selected.Arguments = ArgumentsBox.Text;
+        _selected.WorkingDirectory = WorkingDirBox.Text.Trim();
+        _selected.StartCommand = StartCommandBox.Text.Trim();
+        _selected.StopCommand = StopCommandBox.Text.Trim();
+        _selected.HttpWorkingDirectory = HttpWorkingDirBox.Text.Trim();
+        if (_selected.Kind == ApplicationKind.Http && !string.IsNullOrWhiteSpace(_selected.HttpWorkingDirectory))
+            _selected.WorkingDirectory = _selected.HttpWorkingDirectory;
+
+        _selected.TcpHost = TcpHostBox.Text.Trim();
+        _selected.TcpPort = ParseInt(TcpPortBox.Text, 0);
+        _selected.TcpStartCommand = TcpStartCommandBox.Text.Trim();
+        _selected.TcpStopCommand = TcpStopCommandBox.Text.Trim();
+        _selected.TcpWorkingDirectory = TcpWorkingDirBox.Text.Trim();
+        _selected.ServiceName = ServiceNameBox.Text.Trim();
+
+        _selected.ProcessCheckIntervalSeconds = ParseInt(ProcessIntervalBox.Text, 5);
+        _selected.HealthCheckIntervalSeconds = ParseInt(HealthIntervalBox.Text, 10);
+        _selected.HealthTimeoutSeconds = ParseInt(HealthTimeoutBox.Text, 45);
+        _selected.GracefulTerminationTimeoutSeconds = ParseInt(GracefulStopBox.Text, 10);
+        _selected.RestartDelaySeconds = ParseInt(RestartDelayBox.Text, 5);
+        _selected.MaxRestarts = ParseInt(MaxRestartsBox.Text, 5);
+        _selected.RestartWindowMinutes = ParseInt(RestartWindowBox.Text, 10);
+        _selected.HealthEnabled = _selected.Kind == ApplicationKind.Http || HealthEnabledCheck.IsChecked == true;
+        _selected.HealthUrl = HealthUrlBox.Text.Trim();
+        _selected.ExpectedStatusCode = ParseInt(ExpectedStatusBox.Text, 200);
+
+        var launchBox = _selected.Kind == ApplicationKind.Http ? HttpLaunchModeBox : LaunchModeBox;
+        var modeTag = (launchBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString()
+                      ?? "Interactive";
+        _selected.LaunchMode = Enum.TryParse<LaunchMode>(modeTag, true, out var mode)
+            ? mode
+            : LaunchMode.Interactive;
+
+        _selected.NotifyListLabelChanged();
+    }
+
+    private WatchdogConfig BuildConfigFromApps()
+    {
+        PushFormToSelected();
+        var config = new WatchdogConfig
+        {
+            Notifications = ReadNotificationsFromForm()
         };
+        foreach (var app in _apps)
+            config.Applications.Add(app.ToConfig());
+        return config;
     }
 
     private static int ParseInt(string text, int fallback)
         => int.TryParse(text, out var value) ? value : fallback;
+
+    private void AddApp_Click(object sender, RoutedEventArgs e)
+    {
+        PushFormToSelected();
+        var id = NextUniqueId("app");
+        var item = AppListItem.CreateNew(id);
+        _apps.Add(item);
+        AppList.SelectedItem = item;
+        FooterText.Text = $"Added application '{id}'.";
+    }
+
+    private void RemoveApp_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null)
+            return;
+
+        if (_apps.Count <= 1)
+        {
+            MessageBox.Show(
+                "At least one application entry is required. Disable it instead of removing the last one.",
+                "Remove application",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var remove = _selected;
+        var index = _apps.IndexOf(remove);
+        _suppressSelectionEvents = true;
+        try
+        {
+            _apps.Remove(remove);
+            _selected = _apps[Math.Clamp(index, 0, _apps.Count - 1)];
+            AppList.SelectedItem = _selected;
+            LoadSelectedIntoForm();
+        }
+        finally
+        {
+            _suppressSelectionEvents = false;
+        }
+
+        FooterText.Text = $"Removed '{remove.Id}'.";
+        RefreshStatus();
+    }
+
+    private string NextUniqueId(string prefix)
+    {
+        var n = 1;
+        while (_apps.Any(a => string.Equals(a.Id, $"{prefix}{n}", StringComparison.OrdinalIgnoreCase)))
+            n++;
+        return $"{prefix}{n}";
+    }
+
+    private void AppIdBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null)
+            return;
+
+        var next = AppIdBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(next))
+        {
+            AppIdBox.Text = _selected.Id;
+            return;
+        }
+
+        if (_apps.Any(a => !ReferenceEquals(a, _selected)
+                           && string.Equals(a.Id, next, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show(
+                $"Application id '{next}' is already used.",
+                "Duplicate id",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            AppIdBox.Text = _selected.Id;
+            return;
+        }
+
+        _selected.Id = next;
+        _selected.NotifyListLabelChanged();
+    }
+
+    private void EnabledCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null || _suppressSelectionEvents)
+            return;
+
+        _selected.Enabled = EnabledCheck.IsChecked == true;
+        _selected.NotifyListLabelChanged();
+    }
 
     private void BrowseExecutable_Click(object sender, RoutedEventArgs e)
     {
@@ -113,12 +388,12 @@ public partial class MainWindow : Window
             CheckFileExists = true
         };
 
-        if (!string.IsNullOrWhiteSpace(ExecutablePathBox.Text))
+        if (!string.IsNullOrWhiteSpace(ExecutableBox.Text))
         {
             try
             {
-                dialog.InitialDirectory = Path.GetDirectoryName(ExecutablePathBox.Text);
-                dialog.FileName = Path.GetFileName(ExecutablePathBox.Text);
+                dialog.InitialDirectory = Path.GetDirectoryName(ExecutableBox.Text);
+                dialog.FileName = Path.GetFileName(ExecutableBox.Text);
             }
             catch
             {
@@ -128,68 +403,129 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog(this) == true)
         {
-            ExecutablePathBox.Text = dialog.FileName;
-            if (string.IsNullOrWhiteSpace(WorkingDirectoryBox.Text))
-                WorkingDirectoryBox.Text = Path.GetDirectoryName(dialog.FileName) ?? string.Empty;
+            ExecutableBox.Text = dialog.FileName;
+            if (string.IsNullOrWhiteSpace(WorkingDirBox.Text))
+                WorkingDirBox.Text = Path.GetDirectoryName(dialog.FileName) ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(DisplayNameBox.Text) || DisplayNameBox.Text == "Kiosk Application")
                 DisplayNameBox.Text = Path.GetFileNameWithoutExtension(dialog.FileName);
         }
     }
 
-    private void BrowseWorkingDirectory_Click(object sender, RoutedEventArgs e)
+    private void BrowseWorkingDir_Click(object sender, RoutedEventArgs e)
+        => BrowseFolderInto(WorkingDirBox);
+
+    private void BrowseHttpWorkingDir_Click(object sender, RoutedEventArgs e)
+        => BrowseFolderInto(HttpWorkingDirBox);
+
+    private void BrowseTcpWorkingDir_Click(object sender, RoutedEventArgs e)
+        => BrowseFolderInto(TcpWorkingDirBox);
+
+    private void BrowseFolderInto(System.Windows.Controls.TextBox target)
     {
         var dialog = new OpenFolderDialog
         {
             Title = "Select working directory"
         };
 
-        if (!string.IsNullOrWhiteSpace(WorkingDirectoryBox.Text) && Directory.Exists(WorkingDirectoryBox.Text))
-            dialog.InitialDirectory = WorkingDirectoryBox.Text;
-        else if (!string.IsNullOrWhiteSpace(ExecutablePathBox.Text))
+        if (!string.IsNullOrWhiteSpace(target.Text) && Directory.Exists(target.Text))
+            dialog.InitialDirectory = target.Text;
+        else if (!string.IsNullOrWhiteSpace(ExecutableBox.Text))
         {
-            try { dialog.InitialDirectory = Path.GetDirectoryName(ExecutablePathBox.Text); }
+            try { dialog.InitialDirectory = Path.GetDirectoryName(ExecutableBox.Text); }
             catch { /* ignore */ }
         }
 
         if (dialog.ShowDialog(this) == true)
-            WorkingDirectoryBox.Text = dialog.FolderName;
+            target.Text = dialog.FolderName;
     }
 
     private void RefreshStatus()
     {
-        var status = StatusFilePublisher.Read() ?? new WatchdogStatus
+        var snapshot = StatusFilePublisher.ReadSnapshot();
+        var appId = _selected?.Id;
+        WatchdogStatus? status = null;
+
+        if (snapshot?.Applications is { Count: > 0 })
         {
+            if (!string.IsNullOrWhiteSpace(appId))
+            {
+                status = snapshot.Applications.FirstOrDefault(a =>
+                    string.Equals(a.Id, appId, StringComparison.OrdinalIgnoreCase));
+            }
+
+            status ??= snapshot.Applications[0];
+        }
+
+        status ??= new WatchdogStatus
+        {
+            Id = appId ?? WatchdogConfig.DefaultApplicationId,
             ApplicationName = DisplayNameBox.Text,
             Status = ApplicationStatus.Unknown,
             UpdatedAt = DateTimeOffset.UtcNow
         };
 
-        AppNameText.Text = status.ApplicationName;
-        StatusText.Text = status.Status.ToString().ToUpperInvariant();
-        PidText.Text = status.ProcessId?.ToString() ?? "—";
-        UptimeText.Text = status.Uptime is TimeSpan uptime
-            ? uptime.ToString(@"hh\:mm\:ss")
-            : "—";
-        LastHealthText.Text = HealthEnabledBox.IsChecked == true
-            ? FormatAgo(status.LastHealthCheckAt)
-            : "disabled";
-        LastRestartText.Text = FormatAgo(status.LastRestartAt);
-        RestartCountText.Text = status.RestartCount.ToString();
-        LastErrorText.Text = string.IsNullOrWhiteSpace(status.LastError) ? "—" : status.LastError;
-
-        StatusDot.Fill = status.Status switch
+        StatusValue.Text = status.Status.ToString();
+        StatusChipText.Text = status.Status.ToString();
+        StatusChip.Background = status.Status switch
         {
-            ApplicationStatus.Running => new SolidColorBrush(Color.FromRgb(0x08, 0x7F, 0x5B)),
-            ApplicationStatus.Unhealthy => new SolidColorBrush(Color.FromRgb(0xB5, 0x47, 0x08)),
-            ApplicationStatus.RestartLimitReached => new SolidColorBrush(Color.FromRgb(0xB4, 0x23, 0x18)),
-            ApplicationStatus.Error => new SolidColorBrush(Color.FromRgb(0xB4, 0x23, 0x18)),
-            ApplicationStatus.NotConfigured => new SolidColorBrush(Color.FromRgb(0x8B, 0x94, 0x9E)),
-            ApplicationStatus.Stopped => new SolidColorBrush(Color.FromRgb(0x8B, 0x94, 0x9E)),
-            ApplicationStatus.Starting or ApplicationStatus.Restarting => new SolidColorBrush(Color.FromRgb(0x17, 0x6B, 0xA0)),
-            _ => new SolidColorBrush(Colors.Gray)
+            ApplicationStatus.Running => BrushFrom("#D1FAE5"),
+            ApplicationStatus.Unhealthy or ApplicationStatus.Error or ApplicationStatus.RestartLimitReached
+                => BrushFrom("#FEE2E2"),
+            ApplicationStatus.Starting or ApplicationStatus.Restarting => BrushFrom("#DBEAFE"),
+            ApplicationStatus.Stopped or ApplicationStatus.NotConfigured => BrushFrom("#E5E7EB"),
+            _ => BrushFrom("#E5E7EB")
         };
+        PidValue.Text = status.ProcessId?.ToString() ?? "—";
+        RestartValue.Text = status.RestartCount.ToString();
+        LastStartValue.Text = status.ProcessStartTime?.ToLocalTime().ToString("g") ?? "—";
+
+        if (HealthEnabledCheck.IsChecked == true)
+        {
+            var ok = status.LastHealthCheckSucceeded;
+            HealthValue.Text = ok is null
+                ? FormatAgo(status.LastHealthCheckAt)
+                : $"{(ok.Value ? "OK" : "FAIL")} · {FormatAgo(status.LastHealthCheckAt)}";
+        }
+        else
+        {
+            HealthValue.Text = "disabled";
+        }
+
+        MessageValue.Text = string.IsNullOrWhiteSpace(status.LastError) ? "—" : status.LastError;
+        FooterText.Text = snapshot is null
+            ? "Waiting for service status…"
+            : $"Status updated {FormatAgo(snapshot.UpdatedAt)}";
+
+        UpdateTrayTooltip(snapshot);
     }
+
+    private void UpdateTrayTooltip(WatchdogStatusSnapshot? snapshot)
+    {
+        if (snapshot?.Applications is not { Count: > 0 })
+        {
+            _tray.UpdateTooltip("Kiosk Watchdog — no status");
+            return;
+        }
+
+        if (snapshot.Applications.Count == 1)
+        {
+            var only = snapshot.Applications[0];
+            _tray.UpdateTooltip($"{only.ApplicationName}: {only.Status}");
+            return;
+        }
+
+        var running = snapshot.Applications.Count(a => a.Status == ApplicationStatus.Running);
+        var bad = snapshot.Applications.Count(a =>
+            a.Status is ApplicationStatus.Unhealthy
+                or ApplicationStatus.Error
+                or ApplicationStatus.RestartLimitReached);
+        _tray.UpdateTooltip($"Kiosk Watchdog — {running}/{snapshot.Applications.Count} running" +
+                            (bad > 0 ? $", {bad} issue(s)" : ""));
+    }
+
+    private static System.Windows.Media.SolidColorBrush BrushFrom(string hex)
+        => (System.Windows.Media.SolidColorBrush)new System.Windows.Media.BrushConverter().ConvertFrom(hex)!;
 
     private static string FormatAgo(DateTimeOffset? value)
     {
@@ -200,29 +536,31 @@ public partial class MainWindow : Window
         if (elapsed < TimeSpan.FromSeconds(1))
             return "just now";
         if (elapsed < TimeSpan.FromMinutes(1))
-            return $"{(int)elapsed.TotalSeconds} seconds ago";
+            return $"{(int)elapsed.TotalSeconds}s ago";
         if (elapsed < TimeSpan.FromHours(1))
-            return $"{(int)elapsed.TotalMinutes} minutes ago";
-        return $"{(int)elapsed.TotalHours} hours ago";
+            return $"{(int)elapsed.TotalMinutes}m ago";
+        return $"{(int)elapsed.TotalHours}h ago";
     }
 
+    private string? SelectedApplicationId() => _selected?.Id;
+
     private void Start_Click(object sender, RoutedEventArgs e)
-        => _commandQueue.Enqueue(WatchdogCommandType.Start);
+        => _commandQueue.Enqueue(WatchdogCommandType.Start, SelectedApplicationId());
 
     private void Stop_Click(object sender, RoutedEventArgs e)
-        => _commandQueue.Enqueue(WatchdogCommandType.Stop);
+        => _commandQueue.Enqueue(WatchdogCommandType.Stop, SelectedApplicationId());
 
     private void Restart_Click(object sender, RoutedEventArgs e)
-        => _commandQueue.Enqueue(WatchdogCommandType.Restart);
+        => _commandQueue.Enqueue(WatchdogCommandType.Restart, SelectedApplicationId());
 
     private void ResetCounter_Click(object sender, RoutedEventArgs e)
-        => _commandQueue.Enqueue(WatchdogCommandType.ResetRestartCounter);
+        => _commandQueue.Enqueue(WatchdogCommandType.ResetRestartCounter, SelectedApplicationId());
 
-    private void SaveConfig_Click(object sender, RoutedEventArgs e)
+    private void Save_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var config = ReadConfigFromForm();
+            var config = BuildConfigFromApps();
             var validation = ConfigValidator.Validate(config);
             if (!validation.IsValid)
             {
@@ -235,7 +573,8 @@ public partial class MainWindow : Window
             }
 
             _configStore.Save(config);
-            _config = config;
+            LoadAppsFromConfig(config);
+            FooterText.Text = "Configuration saved. Service will reload automatically.";
             MessageBox.Show(
                 "Configuration saved. The watchdog service will reload it automatically.",
                 "Saved",
@@ -248,27 +587,55 @@ public partial class MainWindow : Window
         }
     }
 
+    private void Reload_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var config = _configStore.Load();
+            LoadAppsFromConfig(config);
+            FooterText.Text = "Configuration reloaded from disk.";
+            RefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Reload failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private async void TestHealth_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var url = HealthUrlBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(url))
-            {
-                MessageBox.Show(
-                    "Enter a localhost health URL first (e.g. http://127.0.0.1:3000/health).",
-                    "Health check",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
-            }
-
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             var checker = new HttpHealthChecker(http);
-            var result = await checker.CheckAsync(url).ConfigureAwait(true);
+            HealthCheckResult result;
+
+            if (SelectedKind() == ApplicationKind.Tcp)
+            {
+                var host = TcpHostBox.Text.Trim();
+                var port = ParseInt(TcpPortBox.Text, 0);
+                result = await checker.CheckTcpAsync(host, port).ConfigureAwait(true);
+            }
+            else
+            {
+                var url = HealthUrlBox.Text.Trim();
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    MessageBox.Show(
+                        "Enter a localhost health URL first (e.g. http://127.0.0.1:3000/health).",
+                        "Health check",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                var expected = ParseInt(ExpectedStatusBox.Text, 200);
+                result = await checker.CheckHttpAsync(url, expected).ConfigureAwait(true);
+            }
 
             MessageBox.Show(
-                $"{result.Status}: {result.Message} (HTTP {result.HttpStatusCode?.ToString() ?? "n/a"})",
+                $"{result.Status}: {result.Message}" +
+                (result.HttpStatusCode is int code ? $" (HTTP {code})" : ""),
                 "Health check",
                 MessageBoxButton.OK,
                 result.IsSuccess ? MessageBoxImage.Information : MessageBoxImage.Warning);
@@ -283,10 +650,193 @@ public partial class MainWindow : Window
     {
         var logs = WatchdogConfig.DefaultLogsDirectory;
         Directory.CreateDirectory(logs);
-        Process.Start(new ProcessStartInfo
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
             FileName = logs,
             UseShellExecute = true
         });
     }
+
+    private void Window_Closing(object sender, CancelEventArgs e)
+    {
+        if (_allowClose)
+        {
+            _refreshTimer.Stop();
+            _tray.Dispose();
+            return;
+        }
+
+        e.Cancel = true;
+        Hide();
+        FooterText.Text = "Running in the system tray.";
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void ExitFromTray()
+    {
+        _allowClose = true;
+        Close();
+        System.Windows.Application.Current.Shutdown();
+    }
+}
+
+internal sealed class AppListItem : INotifyPropertyChanged
+{
+    public string Id { get; set; } = WatchdogConfig.DefaultApplicationId;
+    public bool Enabled { get; set; } = true;
+    public ApplicationKind Kind { get; set; } = ApplicationKind.Process;
+    public string DisplayName { get; set; } = "Kiosk Application";
+    public string ExecutablePath { get; set; } = string.Empty;
+    public string Arguments { get; set; } = string.Empty;
+    public string WorkingDirectory { get; set; } = string.Empty;
+    public string StartCommand { get; set; } = string.Empty;
+    public string StopCommand { get; set; } = string.Empty;
+    public string HttpWorkingDirectory { get; set; } = string.Empty;
+    public string TcpHost { get; set; } = "127.0.0.1";
+    public int TcpPort { get; set; }
+    public string TcpStartCommand { get; set; } = string.Empty;
+    public string TcpStopCommand { get; set; } = string.Empty;
+    public string TcpWorkingDirectory { get; set; } = string.Empty;
+    public string ServiceName { get; set; } = string.Empty;
+    public int ProcessCheckIntervalSeconds { get; set; } = 5;
+    public int HealthCheckIntervalSeconds { get; set; } = 10;
+    public int HealthTimeoutSeconds { get; set; } = 45;
+    public int GracefulTerminationTimeoutSeconds { get; set; } = 10;
+    public int RestartDelaySeconds { get; set; } = 5;
+    public int MaxRestarts { get; set; } = 5;
+    public int RestartWindowMinutes { get; set; } = 10;
+    public bool HealthEnabled { get; set; }
+    public string HealthUrl { get; set; } = string.Empty;
+    public int ExpectedStatusCode { get; set; } = 200;
+    public LaunchMode LaunchMode { get; set; } = LaunchMode.Interactive;
+
+    public string KindLabel => Kind switch
+    {
+        ApplicationKind.Http => "HTTP",
+        ApplicationKind.Tcp => "TCP",
+        ApplicationKind.WindowsService => "Windows Service",
+        _ => "Process"
+    };
+
+    public string ListLabel
+    {
+        get
+        {
+            var baseLabel = $"{Id} [{KindLabel}] — {DisplayName}";
+            return Enabled ? baseLabel : $"{baseLabel} (disabled)";
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void NotifyListLabelChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ListLabel)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(KindLabel)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+    }
+
+    public static AppListItem CreateNew(string id) => new()
+    {
+        Id = id,
+        DisplayName = id
+    };
+
+    public static AppListItem FromConfig(MonitoredApplicationConfig app) => new()
+    {
+        Id = app.Id,
+        Enabled = app.Enabled,
+        Kind = app.Kind,
+        DisplayName = app.Application.DisplayName,
+        ExecutablePath = app.Application.ExecutablePath,
+        Arguments = app.Application.Arguments,
+        WorkingDirectory = app.Application.WorkingDirectory,
+        StartCommand = app.Http.StartCommand,
+        StopCommand = app.Http.StopCommand,
+        HttpWorkingDirectory = app.Http.WorkingDirectory,
+        TcpHost = app.Tcp.Host,
+        TcpPort = app.Tcp.Port,
+        TcpStartCommand = app.Tcp.StartCommand,
+        TcpStopCommand = app.Tcp.StopCommand,
+        TcpWorkingDirectory = app.Tcp.WorkingDirectory,
+        ServiceName = app.WindowsService.ServiceName,
+        ProcessCheckIntervalSeconds = app.Monitoring.ProcessCheckIntervalSeconds,
+        HealthCheckIntervalSeconds = app.Monitoring.HealthCheckIntervalSeconds,
+        HealthTimeoutSeconds = app.Monitoring.HealthTimeoutSeconds,
+        GracefulTerminationTimeoutSeconds = app.Monitoring.GracefulTerminationTimeoutSeconds,
+        RestartDelaySeconds = app.Restart.RestartDelaySeconds,
+        MaxRestarts = app.Restart.MaxRestarts,
+        RestartWindowMinutes = app.Restart.RestartWindowMinutes,
+        HealthEnabled = app.Health.Enabled,
+        HealthUrl = app.Health.Url,
+        ExpectedStatusCode = app.Health.ExpectedStatusCode,
+        LaunchMode = app.Launch.Mode
+    };
+
+    public MonitoredApplicationConfig ToConfig() => new()
+    {
+        Id = Id,
+        Enabled = Enabled,
+        Kind = Kind,
+        Application = new ApplicationConfig
+        {
+            ExecutablePath = ExecutablePath,
+            Arguments = Arguments,
+            WorkingDirectory = WorkingDirectory,
+            DisplayName = DisplayName
+        },
+        Http = new HttpAppConfig
+        {
+            StartCommand = StartCommand,
+            StopCommand = StopCommand,
+            WorkingDirectory = string.IsNullOrWhiteSpace(HttpWorkingDirectory)
+                ? WorkingDirectory
+                : HttpWorkingDirectory
+        },
+        Tcp = new TcpAppConfig
+        {
+            Host = string.IsNullOrWhiteSpace(TcpHost) ? "127.0.0.1" : TcpHost,
+            Port = TcpPort,
+            StartCommand = TcpStartCommand,
+            StopCommand = TcpStopCommand,
+            WorkingDirectory = TcpWorkingDirectory
+        },
+        WindowsService = new WindowsServiceAppConfig
+        {
+            ServiceName = ServiceName
+        },
+        Monitoring = new MonitoringConfig
+        {
+            ProcessCheckIntervalSeconds = ProcessCheckIntervalSeconds,
+            HealthCheckIntervalSeconds = HealthCheckIntervalSeconds,
+            HealthTimeoutSeconds = HealthTimeoutSeconds,
+            GracefulTerminationTimeoutSeconds = GracefulTerminationTimeoutSeconds
+        },
+        Restart = new RestartConfig
+        {
+            RestartOnExit = true,
+            RestartOnUnhealthy = true,
+            RestartDelaySeconds = RestartDelaySeconds,
+            MaxRestarts = MaxRestarts,
+            RestartWindowMinutes = RestartWindowMinutes
+        },
+        Health = new HealthConfig
+        {
+            Enabled = Kind == ApplicationKind.Http || HealthEnabled,
+            Type = "http",
+            Url = HealthUrl,
+            ExpectedStatusCode = ExpectedStatusCode
+        },
+        Launch = new LaunchConfig
+        {
+            Mode = LaunchMode
+        }
+    };
 }
