@@ -245,6 +245,30 @@ public class WatchdogEngineTests
     }
 
     [Fact]
+    public async Task Removing_app_from_config_stops_it_and_drops_status()
+    {
+        var harness = CreateMultiHarness();
+        await harness.Engine.StartAsync(CancellationToken.None);
+        await WaitForAsync(() =>
+            harness.Status.Get("app-a")?.ProcessId is not null
+            && harness.Status.Get("app-b")?.ProcessId is not null);
+
+        var pidA = harness.Status.Get("app-a")!.ProcessId!.Value;
+        var pidB = harness.Status.Get("app-b")!.ProcessId!.Value;
+
+        harness.Config.Applications.RemoveAll(a =>
+            string.Equals(a.Id, "app-a", StringComparison.OrdinalIgnoreCase));
+        harness.Engine.ReloadConfiguration(harness.Config);
+
+        Assert.Null(harness.Status.Get("app-a"));
+        Assert.False(harness.Processes.IsRunning(pidA));
+        Assert.True(harness.Processes.IsRunning(pidB));
+        Assert.Equal(ApplicationStatus.Running, harness.Status.Get("app-b")!.Status);
+
+        await harness.Engine.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task Http_app_starts_shell_command_when_health_is_down()
     {
         var harness = CreateHttpHarness();

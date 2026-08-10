@@ -41,8 +41,8 @@ public sealed class WatchdogEngine : BackgroundService
         _configStore = configStore;
         _clock = clock;
         _logger = logger;
-        _config = initialConfig ?? configStore.Load();
-        _config.Normalize();
+        // Clone so callers can mutate the instance they passed without altering live state.
+        _config = CloneConfig(initialConfig ?? configStore.Load());
         ReconcileSlots(_config);
     }
 
@@ -68,17 +68,74 @@ public sealed class WatchdogEngine : BackgroundService
                 "Invalid configuration: " + string.Join("; ", validation.Errors));
         }
 
+        List<(AppSlot Slot, MonitoredApplicationConfig App)> removed;
         lock (_configGate)
         {
-            _config = CloneConfig(config);
+            var next = CloneConfig(config);
+            removed = CaptureRemovedApps(_config, next);
+            _config = next;
             ReconcileSlots(_config);
         }
+
+        if (removed.Count > 0)
+            StopRemovedApps(removed);
 
         ApplyServiceStartType(_config.Service.StartOnBoot);
 
         _logger.LogInformation(
             "Configuration changed ({Count} application(s)).",
             _config.Applications.Count);
+    }
+
+    private List<(AppSlot Slot, MonitoredApplicationConfig App)> CaptureRemovedApps(
+        WatchdogConfig previous,
+        WatchdogConfig next)
+    {
+        var keep = next.Applications
+            .Select(a => a.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var removed = new List<(AppSlot, MonitoredApplicationConfig)>();
+        foreach (var id in _slots.Keys.Where(id => !keep.Contains(id)).ToList())
+        {
+            if (!_slots.TryGetValue(id, out var slot))
+                continue;
+
+            var app = previous.FindApplication(id);
+            if (app is null)
+                continue;
+
+            removed.Add((slot, app));
+        }
+
+        return removed;
+    }
+
+    private void StopRemovedApps(List<(AppSlot Slot, MonitoredApplicationConfig App)> removed)
+    {
+        _controlLock.Wait();
+        try
+        {
+            foreach (var (slot, app) in removed)
+            {
+                try
+                {
+                    slot.ManualStopRequested = true;
+                    StopTrackedProcessAsync(slot, app, CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult();
+                    _logger.LogInformation("Stopped removed application '{AppId}'.", app.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed stopping removed application '{AppId}'.", app.Id);
+                }
+            }
+        }
+        finally
+        {
+            _controlLock.Release();
+        }
     }
 
     private void ApplyServiceStartType(bool startOnBoot)

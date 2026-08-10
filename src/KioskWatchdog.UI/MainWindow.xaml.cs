@@ -53,7 +53,6 @@ public partial class MainWindow : Window
         _suppressSelectionEvents = true;
         try
         {
-            PushFormToSelected();
             _apps.Clear();
 
             if (config.Applications.Count == 0)
@@ -299,11 +298,26 @@ public partial class MainWindow : Window
         }
 
         var remove = _selected;
+        var label = string.IsNullOrWhiteSpace(remove.DisplayName) ? remove.Id : remove.DisplayName;
+        var confirm = MessageBox.Show(
+            $"Remove '{label}' ({remove.Id})?\n\nThis saves the configuration and stops monitoring that application.",
+            "Remove application",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
         var index = _apps.IndexOf(remove);
         _suppressSelectionEvents = true;
         try
         {
+            // Clear selection before remove so SelectionChanged cannot push the
+            // removed app's form data onto the next selected item.
+            AppList.SelectedItem = null;
+            _selected = null;
             _apps.Remove(remove);
+
             _selected = _apps[Math.Clamp(index, 0, _apps.Count - 1)];
             AppList.SelectedItem = _selected;
             LoadSelectedIntoForm();
@@ -313,7 +327,31 @@ public partial class MainWindow : Window
             _suppressSelectionEvents = false;
         }
 
-        FooterText.Text = $"Removed '{remove.Id}'.";
+        if (!TryPersistConfig(out var error))
+        {
+            _suppressSelectionEvents = true;
+            try
+            {
+                var insertAt = Math.Clamp(index, 0, _apps.Count);
+                _apps.Insert(insertAt, remove);
+                _selected = remove;
+                AppList.SelectedItem = remove;
+                LoadSelectedIntoForm();
+            }
+            finally
+            {
+                _suppressSelectionEvents = false;
+            }
+
+            MessageBox.Show(
+                error ?? "Could not save configuration after remove.",
+                "Remove failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        FooterText.Text = $"Removed '{remove.Id}' and saved.";
         RefreshStatus();
     }
 
@@ -566,24 +604,45 @@ public partial class MainWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
+        if (!TryPersistConfig(out var error, out var startOnBootNote))
+        {
+            MessageBox.Show(
+                error ?? "Save failed.",
+                "Save failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        FooterText.Text = "Configuration saved. Service will reload automatically.";
+        MessageBox.Show(
+            "Configuration saved. The watchdog service will reload it automatically." + startOnBootNote,
+            "Saved",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private bool TryPersistConfig(out string? error)
+        => TryPersistConfig(out error, out _);
+
+    private bool TryPersistConfig(out string? error, out string startOnBootNote)
+    {
+        error = null;
+        startOnBootNote = "";
+
         try
         {
             var config = BuildConfigFromApps();
             var validation = ConfigValidator.Validate(config);
             if (!validation.IsValid)
             {
-                MessageBox.Show(
-                    string.Join(Environment.NewLine, validation.Errors),
-                    "Invalid configuration",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
+                error = string.Join(Environment.NewLine, validation.Errors);
+                return false;
             }
 
             _configStore.Save(config);
 
             // Prefer applying immediately; the service also applies this on reload (as SYSTEM).
-            var startOnBootNote = "";
             if (!WatchdogServiceManager.TrySetStartOnBoot(config.Service.StartOnBoot, out var scmError))
             {
                 startOnBootNote =
@@ -592,16 +651,12 @@ public partial class MainWindow : Window
             }
 
             LoadAppsFromConfig(config);
-            FooterText.Text = "Configuration saved. Service will reload automatically.";
-            MessageBox.Show(
-                "Configuration saved. The watchdog service will reload it automatically." + startOnBootNote,
-                "Saved",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            return true;
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            error = ex.Message;
+            return false;
         }
     }
 
