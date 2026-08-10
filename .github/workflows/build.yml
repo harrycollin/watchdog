@@ -29,9 +29,9 @@ jobs:
       should_release: ${{ steps.version.outputs.should_release }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -110,7 +110,7 @@ jobs:
           Get-ChildItem release | Format-Table Name, Length
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KioskWatchdog-${{ steps.version.outputs.version }}
           path: release/*
@@ -122,13 +122,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: KioskWatchdog-${{ needs.build.outputs.version }}
           path: release
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           name: Kiosk Watchdog ${{ needs.build.outputs.version }}
