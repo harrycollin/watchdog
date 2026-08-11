@@ -310,15 +310,18 @@ public class WatchdogEngineTests
     }
 
     [Fact]
-    public async Task Schedule_window_start_does_not_require_restart_on_exit()
+    public async Task When_schedule_countdown_hits_zero_app_starts_not_stopped()
     {
-        // Repro: countdown hits 0 → status becomes Stopped and app never starts when
-        // RestartOnExit is false (schedule open must force-start on its own).
+        // Reported bug: UI shows Scheduled off while counting down; at zero the status
+        // became Stopped and the process never launched. Root cause: schedule open relied
+        // on RestartOnExit instead of force-starting desired state.
         var fakeClock = new FakeClock(UtcForLocal(2026, 3, 9, 8, 59, 30));
         var harness = CreateHarness(fakeClock: fakeClock);
         var app = harness.Config.Primary();
         app.Restart.RestartOnExit = false;
         app.Restart.RestartOnUnhealthy = false;
+        app.Restart.RestartDelaySeconds = 0;
+        app.Monitoring.ProcessCheckIntervalSeconds = 1;
         app.Schedule = new ScheduleConfig
         {
             Enabled = true,
@@ -333,19 +336,27 @@ public class WatchdogEngineTests
         harness.Engine.ReloadConfiguration(harness.Config);
 
         await harness.Engine.StartAsync(CancellationToken.None);
+
+        // Countdown phase — Scheduled off, nothing started yet.
         await WaitForAsync(() =>
             harness.PrimaryStatus().Status == ApplicationStatus.OutsideSchedule,
             TimeSpan.FromSeconds(5));
+        Assert.Equal(ApplicationStatus.OutsideSchedule, harness.PrimaryStatus().Status);
         Assert.Equal(0, harness.Processes.StartCallCount);
 
+        // Countdown hits zero (exact schedule start boundary).
         harness.Clock!.Set(UtcForLocal(2026, 3, 9, 9, 0, 0));
 
         await WaitForAsync(() =>
             harness.PrimaryStatus().Status == ApplicationStatus.Running
             && harness.PrimaryStatus().ProcessId is not null,
             TimeSpan.FromSeconds(5));
+
+        Assert.Equal(ApplicationStatus.Running, harness.PrimaryStatus().Status);
+        Assert.NotNull(harness.PrimaryStatus().ProcessId);
         Assert.True(harness.Processes.StartCallCount >= 1);
         Assert.NotEqual(ApplicationStatus.Stopped, harness.PrimaryStatus().Status);
+        Assert.NotEqual(ApplicationStatus.OutsideSchedule, harness.PrimaryStatus().Status);
 
         await harness.Engine.StopAsync(CancellationToken.None);
     }
