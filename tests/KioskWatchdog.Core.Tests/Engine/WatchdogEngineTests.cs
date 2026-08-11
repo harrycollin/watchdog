@@ -309,10 +309,87 @@ public class WatchdogEngineTests
         await harness.Engine.StopAsync(CancellationToken.None);
     }
 
-    /// <summary>UTC instant that is the given wall time in the machine local zone.</summary>
-    private static DateTimeOffset UtcForLocal(int year, int month, int day, int hour, int minute)
+    [Fact]
+    public async Task Schedule_window_start_does_not_require_restart_on_exit()
     {
-        var local = new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Unspecified);
+        // Repro: countdown hits 0 → status becomes Stopped and app never starts when
+        // RestartOnExit is false (schedule open must force-start on its own).
+        var fakeClock = new FakeClock(UtcForLocal(2026, 3, 9, 8, 59, 30));
+        var harness = CreateHarness(fakeClock: fakeClock);
+        var app = harness.Config.Primary();
+        app.Restart.RestartOnExit = false;
+        app.Restart.RestartOnUnhealthy = false;
+        app.Schedule = new ScheduleConfig
+        {
+            Enabled = true,
+            StartTime = "09:00",
+            EndTime = "18:00",
+            DaysOfWeek =
+            [
+                DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+                DayOfWeek.Thursday, DayOfWeek.Friday
+            ]
+        };
+        harness.Engine.ReloadConfiguration(harness.Config);
+
+        await harness.Engine.StartAsync(CancellationToken.None);
+        await WaitForAsync(() =>
+            harness.PrimaryStatus().Status == ApplicationStatus.OutsideSchedule,
+            TimeSpan.FromSeconds(5));
+        Assert.Equal(0, harness.Processes.StartCallCount);
+
+        harness.Clock!.Set(UtcForLocal(2026, 3, 9, 9, 0, 0));
+
+        await WaitForAsync(() =>
+            harness.PrimaryStatus().Status == ApplicationStatus.Running
+            && harness.PrimaryStatus().ProcessId is not null,
+            TimeSpan.FromSeconds(5));
+        Assert.True(harness.Processes.StartCallCount >= 1);
+        Assert.NotEqual(ApplicationStatus.Stopped, harness.PrimaryStatus().Status);
+
+        await harness.Engine.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Manual_stop_still_blocks_start_when_schedule_window_opens()
+    {
+        var fakeClock = new FakeClock(UtcForLocal(2026, 3, 9, 8, 59, 30));
+        var harness = CreateHarness(fakeClock: fakeClock);
+        var app = harness.Config.Primary();
+        app.Schedule = new ScheduleConfig
+        {
+            Enabled = true,
+            StartTime = "09:00",
+            EndTime = "18:00",
+            DaysOfWeek =
+            [
+                DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+                DayOfWeek.Thursday, DayOfWeek.Friday
+            ]
+        };
+        harness.Engine.ReloadConfiguration(harness.Config);
+
+        await harness.Engine.StartAsync(CancellationToken.None);
+        await WaitForAsync(() =>
+            harness.PrimaryStatus().Status == ApplicationStatus.OutsideSchedule,
+            TimeSpan.FromSeconds(5));
+
+        await harness.Engine.StopApplicationAsync();
+        Assert.Equal(ApplicationStatus.Stopped, harness.PrimaryStatus().Status);
+
+        harness.Clock!.Set(UtcForLocal(2026, 3, 9, 9, 0, 0));
+        await Task.Delay(1500);
+
+        Assert.Equal(ApplicationStatus.Stopped, harness.PrimaryStatus().Status);
+        Assert.Equal(0, harness.Processes.StartCallCount);
+
+        await harness.Engine.StopAsync(CancellationToken.None);
+    }
+
+    /// <summary>UTC instant that is the given wall time in the machine local zone.</summary>
+    private static DateTimeOffset UtcForLocal(int year, int month, int day, int hour, int minute, int second = 0)
+    {
+        var local = new DateTime(year, month, day, hour, minute, second, DateTimeKind.Unspecified);
         var utc = TimeZoneInfo.ConvertTimeToUtc(local, TimeZoneInfo.Local);
         return new DateTimeOffset(utc, TimeSpan.Zero);
     }
