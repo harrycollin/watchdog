@@ -388,7 +388,21 @@ public sealed class WatchdogEngine : BackgroundService
     {
         if (!ScheduleEvaluator.IsWithinSchedule(app.Schedule, _clock.UtcNow))
         {
+            slot.InScheduleWindow = false;
             await EnsureOutsideScheduleAsync(slot, app, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // Desired state while inside the window is Running. The normal "process missing"
+        // path only auto-starts when RestartOnExit is enabled and briefly publishes
+        // Stopped first — so schedule open must force-start explicitly.
+        var enteredSchedule = !slot.InScheduleWindow;
+        slot.InScheduleWindow = true;
+        if (enteredSchedule && !slot.ManualStopRequested)
+        {
+            await StartForScheduleWindowAsync(slot, app, cancellationToken).ConfigureAwait(false);
+            // Avoid a second start attempt on this same tick (monitor "process missing"
+            // would otherwise race the schedule start and overwrite Error → Stopped).
             return;
         }
 
@@ -406,6 +420,34 @@ public sealed class WatchdogEngine : BackgroundService
             default:
                 await MonitorProcessAppOnceAsync(slot, app, cancellationToken).ConfigureAwait(false);
                 return;
+        }
+    }
+
+    private async Task StartForScheduleWindowAsync(
+        AppSlot slot,
+        MonitoredApplicationConfig app,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "[{AppId}] Schedule window opened ({Start}-{End} local); starting application.",
+            slot.Id,
+            app.Schedule.StartTime,
+            app.Schedule.EndTime);
+
+        try
+        {
+            await EnsureApplicationRunningAsync(slot, app, forceStart: true, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[{AppId}] Failed to start application at schedule open.", slot.Id);
+            UpdateStatus(slot.Id, s =>
+            {
+                s.ApplicationName = app.Application.DisplayName;
+                s.Status = ApplicationStatus.Error;
+                s.LastError = ex.Message;
+            });
         }
     }
 
@@ -1420,6 +1462,8 @@ public sealed class WatchdogEngine : BackgroundService
         public DateTimeOffset? NextAllowedStartAt { get; set; }
         public DateTimeOffset LastHealthProbeAt { get; set; } = DateTimeOffset.MinValue;
         public bool ManualStopRequested { get; set; }
+        /// <summary>True while the latest monitor tick was inside the app's schedule window.</summary>
+        public bool InScheduleWindow { get; set; }
         public HealthMonitor HealthMonitor { get; }
         public RestartManager RestartManager { get; }
         public ResourceLimitTracker ResourceTracker { get; }
