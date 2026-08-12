@@ -64,8 +64,9 @@ Source: "..\artifacts\publish\*"; DestDir: "{app}"; Flags: ignoreversion recurse
 Source: "..\config\config.example.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
-Name: "{commonappdata}\KioskWatchdog"; Flags: uninsneveruninstall
-Name: "{commonappdata}\KioskWatchdog\logs"; Flags: uninsneveruninstall
+; Users must write config/status/logs from the non-elevated UI (asInvoker).
+Name: "{commonappdata}\KioskWatchdog"; Permissions: users-modify; Flags: uninsneveruninstall
+Name: "{commonappdata}\KioskWatchdog\logs"; Permissions: users-modify; Flags: uninsneveruninstall
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

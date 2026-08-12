@@ -18,6 +18,10 @@ Run **`KioskWatchdogSetup-<version>.exe`** from a [GitHub Release](../../release
 - **Running Setup again upgrades that same install** (same AppId / folder). It does not create a second copy.
 - Existing `C:\ProgramData\KioskWatchdog\config.json` is kept on upgrade
 
+### In-app updates
+
+The UI can check the public GitHub Releases API for a newer `KioskWatchdogSetup-*.exe`, download it, and launch Setup (UAC). Toggle **Check for updates when opening the UI** under **Settings → Updates**, or use **Check now** / **Download & install**. Config keys: `updates.checkOnStartup`, `updates.gitHubRepository`.
+
 In the UI **Global settings**, you can turn off “Start watchdog service automatically when Windows boots” (`service.startOnBoot` in config). That only changes the Windows Service start type — the configuration window never auto-opens.
 
 ### Create a release

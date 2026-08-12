@@ -19,9 +19,20 @@ public static class Program
             return;
         }
 
-        var app = new App();
-        app.InitializeComponent();
-        app.Run();
+        if (!SingleInstanceGuard.TryEnter(out var singleInstance) || singleInstance is null)
+            return;
+
+        try
+        {
+            var app = new App();
+            app.SingleInstance = singleInstance;
+            app.InitializeComponent();
+            app.Run();
+        }
+        finally
+        {
+            singleInstance.Dispose();
+        }
     }
 
     private static bool ShouldRunAsService(string[] args)

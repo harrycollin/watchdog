@@ -16,6 +16,8 @@ public sealed class WatchdogConfig
 
     public NotificationsConfig Notifications { get; set; } = new();
 
+    public UpdatesConfig Updates { get; set; } = new();
+
     public static string DefaultConfigPath =>
         Path.Combine(DefaultConfigDirectory, DefaultConfigFileName);
 
@@ -31,6 +33,12 @@ public sealed class WatchdogConfig
         Notifications.Webhook ??= new WebhookConfig();
         Notifications.Webhook.Events ??= new WebhookEventsConfig();
         Notifications.Webhook.StatusReport ??= new StatusReportConfig();
+        Updates ??= new UpdatesConfig();
+
+        if (string.IsNullOrWhiteSpace(Updates.GitHubRepository))
+            Updates.GitHubRepository = UpdatesConfig.DefaultGitHubRepository;
+        else
+            Updates.GitHubRepository = Updates.GitHubRepository.Trim().Trim('/');
 
         if (Notifications.Webhook.TimeoutSeconds is < 1 or > 120)
             Notifications.Webhook.TimeoutSeconds = 10;

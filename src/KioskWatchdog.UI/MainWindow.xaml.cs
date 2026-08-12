@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -10,6 +11,7 @@ using KioskWatchdog.Core.Health;
 using KioskWatchdog.Core.Ipc;
 using KioskWatchdog.Core.Process;
 using KioskWatchdog.Core.Status;
+using KioskWatchdog.Core.Updates;
 using Microsoft.Win32;
 using MessageBox = System.Windows.MessageBox;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
@@ -25,8 +27,10 @@ public partial class MainWindow : Window
     private readonly TrayIconService _tray;
     private ServiceSettingsConfig _service = new();
     private NotificationsConfig _notifications = new();
+    private UpdatesConfig _updates = new();
     private bool _suppressSelectionEvents;
     private bool _allowClose;
+    private bool _startupUpdateCheckStarted;
     private AppListItem? _selected;
 
     public MainWindow()
@@ -46,6 +50,17 @@ public partial class MainWindow : Window
         _refreshTimer.Tick += (_, _) => RefreshStatus();
         _refreshTimer.Start();
         RefreshStatus();
+
+        Loaded += MainWindow_Loaded;
+    }
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_startupUpdateCheckStarted || !_updates.CheckOnStartup)
+            return;
+
+        _startupUpdateCheckStarted = true;
+        _ = CheckForUpdatesOnStartupAsync();
     }
 
     private void LoadAppsFromConfig(WatchdogConfig config)
@@ -70,6 +85,7 @@ public partial class MainWindow : Window
             LoadSelectedIntoForm();
             _service = config.Service ?? new ServiceSettingsConfig();
             _notifications = config.Notifications;
+            _updates = config.Updates ?? new UpdatesConfig();
         }
         finally
         {
@@ -79,7 +95,7 @@ public partial class MainWindow : Window
 
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SettingsWindow(_service, _notifications)
+        var dialog = new SettingsWindow(_service, _notifications, _updates)
         {
             Owner = this
         };
@@ -88,7 +104,55 @@ public partial class MainWindow : Window
         {
             _service = dialog.ServiceResult;
             _notifications = dialog.NotificationsResult;
+            _updates = dialog.UpdatesResult;
             FooterText.Text = "Settings updated. Save configuration to apply.";
+        }
+    }
+
+    private async Task CheckForUpdatesOnStartupAsync()
+    {
+        try
+        {
+            var current = UpdateVersion.FromAssembly(Assembly.GetExecutingAssembly());
+            using var client = new GitHubUpdateClient(_updates.GitHubRepository);
+            var result = await client.CheckForUpdateAsync(current).ConfigureAwait(true);
+            if (!result.UpdateAvailable)
+                return;
+
+            FooterText.Text = $"Update available: {result.LatestVersion}. Open Settings to install.";
+
+            var answer = MessageBox.Show(
+                $"Kiosk Watchdog {result.LatestVersion} is available (you have {result.CurrentVersion}).\n\n" +
+                "Download and install now? Windows may ask for administrator approval.",
+                "Update available",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information);
+
+            if (answer != MessageBoxResult.Yes)
+                return;
+
+            FooterText.Text = "Downloading update…";
+            var setupPath = await client.DownloadSetupAsync(
+                    result.DownloadUrl,
+                    result.SetupFileName)
+                .ConfigureAwait(true);
+
+            if (!UpdateInstaller.TryLaunch(setupPath, out var error))
+            {
+                MessageBox.Show(
+                    error ?? "Could not start the installer.",
+                    "Update",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                FooterText.Text = "Update cancelled or failed.";
+                return;
+            }
+
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch
+        {
+            // Startup checks are best-effort; manual check lives in Settings.
         }
     }
 
@@ -291,7 +355,8 @@ public partial class MainWindow : Window
             {
                 StartOnBoot = _service.StartOnBoot
             },
-            Notifications = _notifications
+            Notifications = _notifications,
+            Updates = _updates
         };
         foreach (var app in _apps)
             config.Applications.Add(app.ToConfig());
@@ -830,7 +895,12 @@ public partial class MainWindow : Window
         FooterText.Text = "Running in the system tray.";
     }
 
-    private void ShowFromTray()
+    private void ShowFromTray() => BringToForeground();
+
+    /// <summary>
+    /// Shows and activates the window (tray double-click or a second UI launch).
+    /// </summary>
+    internal void BringToForeground()
     {
         Show();
         if (WindowState == WindowState.Minimized)

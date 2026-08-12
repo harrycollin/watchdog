@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Global settings"
-        Height="560"
+        Height="640"
         Width="540"
-        MinHeight="480"
+        MinHeight="520"
         MinWidth="480"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
@@ -50,6 +50,51 @@
                          VerticalAlignment="Center"
                          Foreground="#FF64748B"
                          Text="Service: —" />
+            </DockPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Background="White"
+                BorderBrush="#FFDDDDDD"
+                BorderThickness="1"
+                Padding="14"
+                CornerRadius="4"
+                Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="Updates" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+            <TextBlock Text="Checks the public GitHub Releases page for a newer KioskWatchdogSetup installer."
+                       Foreground="#FF666666"
+                       Margin="0,0,0,12"
+                       TextWrapping="Wrap" />
+
+            <CheckBox x:Name="CheckOnStartupCheck"
+                      Content="Check for updates when opening the UI"
+                      Margin="0,0,0,8"
+                      IsChecked="True" />
+
+            <TextBlock x:Name="CurrentVersionText"
+                       Foreground="#FF64748B"
+                       Margin="0,0,0,8"
+                       Text="Installed version: —" />
+
+            <DockPanel Margin="0,0,0,8">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="CheckUpdatesButton"
+                        Content="Check now"
+                        Margin="0,0,6,0"
+                        Padding="10,4"
+                        Click="CheckUpdates_Click" />
+                <Button x:Name="InstallUpdateButton"
+                        Content="Download &amp; install"
+                        Padding="10,4"
+                        IsEnabled="False"
+                        Click="InstallUpdate_Click" />
+              </StackPanel>
+              <TextBlock x:Name="UpdateStatusText"
+                         VerticalAlignment="Center"
+                         Foreground="#FF64748B"
+                         TextWrapping="Wrap"
+                         Text="Not checked yet." />
             </DockPanel>
           </StackPanel>
         </Border>

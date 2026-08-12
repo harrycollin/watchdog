@@ -2,6 +2,10 @@
   "service": {
     "startOnBoot": true
   },
+  "updates": {
+    "checkOnStartup": true,
+    "gitHubRepository": "harrycollin/watchdog"
+  },
   "notifications": {
     "webhook": {
       "enabled": false,
