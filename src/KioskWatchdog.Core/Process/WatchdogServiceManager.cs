@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using System.ServiceProcess;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -16,6 +17,7 @@ public static class WatchdogServiceManager
     private const int StartTypeAuto = 2;
     private const int StartTypeDemand = 3;
 
+    [SupportedOSPlatformGuard("windows")]
     public static bool IsSupported => OperatingSystem.IsWindows();
 
     public static bool TryGetIsRunning(out bool isRunning, out string? error)

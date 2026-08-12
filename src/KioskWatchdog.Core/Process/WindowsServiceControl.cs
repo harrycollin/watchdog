@@ -7,6 +7,7 @@ namespace KioskWatchdog.Core.Process;
 /// <summary>Helpers for monitoring and restarting Windows Services.</summary>
 public static class WindowsServiceControl
 {
+    [SupportedOSPlatformGuard("windows")]
     public static bool IsSupported => OperatingSystem.IsWindows();
 
     [SupportedOSPlatform("windows")]
