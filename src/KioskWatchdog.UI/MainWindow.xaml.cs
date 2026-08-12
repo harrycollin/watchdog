@@ -38,7 +38,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         AppList.ItemsSource = _apps;
 
-        _tray = new TrayIconService(ShowFromTray, ExitFromTray);
+        _tray = new TrayIconService(
+            ShowFromTray,
+            ExitFromTray,
+            (type, appId) => _commandQueue.Enqueue(type, appId),
+            GetTrayApps);
 
         var config = _configStore.Load();
         LoadAppsFromConfig(config);
@@ -667,6 +671,30 @@ public partial class MainWindow : Window
                 or ApplicationStatus.RestartLimitReached);
         _tray.UpdateTooltip($"Kiosk Watchdog — {running}/{snapshot.Applications.Count} running" +
                             (bad > 0 ? $", {bad} issue(s)" : ""));
+    }
+
+    private IReadOnlyList<TrayAppEntry> GetTrayApps()
+    {
+        var snapshot = StatusFilePublisher.ReadSnapshot();
+        var entries = new List<TrayAppEntry>(_apps.Count);
+
+        foreach (var app in _apps)
+        {
+            var match = snapshot?.Applications?.FirstOrDefault(a =>
+                string.Equals(a.Id, app.Id, StringComparison.OrdinalIgnoreCase));
+
+            var status = app.Enabled
+                ? match?.Status ?? ApplicationStatus.Unknown
+                : ApplicationStatus.NotConfigured;
+
+            entries.Add(new TrayAppEntry(
+                app.Id,
+                string.IsNullOrWhiteSpace(app.DisplayName) ? app.Id : app.DisplayName,
+                status,
+                app.Enabled));
+        }
+
+        return entries;
     }
 
     internal static SolidColorBrush BrushForStatus(ApplicationStatus status)
