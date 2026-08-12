@@ -37,8 +37,13 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         AppList.ItemsSource = _apps;
+        VersionText.Text = $"v{UpdateVersion.FromAssembly(Assembly.GetExecutingAssembly())}";
 
-        _tray = new TrayIconService(ShowFromTray, ExitFromTray);
+        _tray = new TrayIconService(
+            ShowFromTray,
+            ExitFromTray,
+            (type, appId) => _commandQueue.Enqueue(type, appId),
+            GetTrayApps);
 
         var config = _configStore.Load();
         LoadAppsFromConfig(config);
@@ -669,6 +674,30 @@ public partial class MainWindow : Window
                             (bad > 0 ? $", {bad} issue(s)" : ""));
     }
 
+    private IReadOnlyList<TrayAppEntry> GetTrayApps()
+    {
+        var snapshot = StatusFilePublisher.ReadSnapshot();
+        var entries = new List<TrayAppEntry>(_apps.Count);
+
+        foreach (var app in _apps)
+        {
+            var match = snapshot?.Applications?.FirstOrDefault(a =>
+                string.Equals(a.Id, app.Id, StringComparison.OrdinalIgnoreCase));
+
+            var status = app.Enabled
+                ? match?.Status ?? ApplicationStatus.Unknown
+                : ApplicationStatus.NotConfigured;
+
+            entries.Add(new TrayAppEntry(
+                app.Id,
+                string.IsNullOrWhiteSpace(app.DisplayName) ? app.Id : app.DisplayName,
+                status,
+                app.Enabled));
+        }
+
+        return entries;
+    }
+
     internal static SolidColorBrush BrushForStatus(ApplicationStatus status)
         => status switch
         {
@@ -720,7 +749,7 @@ public partial class MainWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryPersistConfig(out var error, out var startOnBootNote))
+        if (!TryPersistConfig(out var error))
         {
             MessageBox.Show(
                 error ?? "Save failed.",
@@ -732,19 +761,15 @@ public partial class MainWindow : Window
 
         FooterText.Text = "Configuration saved. Service will reload automatically.";
         MessageBox.Show(
-            "Configuration saved. The watchdog service will reload it automatically." + startOnBootNote,
+            "Configuration saved. The watchdog service will reload it automatically.",
             "Saved",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
     }
 
     private bool TryPersistConfig(out string? error)
-        => TryPersistConfig(out error, out _);
-
-    private bool TryPersistConfig(out string? error, out string startOnBootNote)
     {
         error = null;
-        startOnBootNote = "";
 
         try
         {
@@ -758,13 +783,9 @@ public partial class MainWindow : Window
 
             _configStore.Save(config);
 
-            // Prefer applying immediately; the service also applies this on reload (as SYSTEM).
-            if (!WatchdogServiceManager.TrySetStartOnBoot(config.Service.StartOnBoot, out var scmError))
-            {
-                startOnBootNote =
-                    " Start-on-boot will be applied when the service reloads the config" +
-                    (string.IsNullOrWhiteSpace(scmError) ? "." : $" ({scmError}).");
-            }
+            // Best-effort only: the non-elevated UI usually cannot change the service start
+            // type (sc.exe → access denied). The Windows service applies startOnBoot on reload.
+            _ = WatchdogServiceManager.TrySetStartOnBoot(config.Service.StartOnBoot, out _);
 
             LoadAppsFromConfig(config);
             return true;
